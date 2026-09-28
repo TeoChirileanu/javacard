@@ -8,9 +8,9 @@
 
 **Purpose**: Project initialization, directory structure creation, and shared build/test scaffolding.
 
-- [ ] T001 Create project directories for Java Card source code, host tools, test suites, and documentation per plan (`applet/src/org/speckit/javacard/berstorage/`, `tools/`, `tests/`, `docs/`)
-- [ ] T002 [P] Configure Python host tool environment dependencies and requirements in `requirements.txt` (`cryptography>=41.0.0`, `pyyaml>=6.0`)
-- [ ] T003 [P] Setup offline unit test runner script in `tests/run_tests.py`
+- [x] T001 Create project directories for Java Card source code, host tools, test suites, and documentation per plan (`applet/src/org/speckit/javacard/berstorage/`, `tools/`, `tests/`, `docs/`)
+- [x] T002 [P] Configure Python host tool environment dependencies and requirements in `requirements.txt` (`cryptography>=41.0.0`, `pyyaml>=6.0`)
+- [x] T003 [P] Setup offline unit test runner script in `tests/run_tests.py`
 
 ---
 
@@ -20,10 +20,10 @@
 
 **⚠️ CRITICAL**: No user story work can proceed until this communication and data encoding foundation is complete.
 
-- [ ] T004 Implement native Windows WinSCard ctypes wrapper in `tools/card_tool.py` supporting `SCardEstablishContext`, `SCardListReaders`, `SCardConnect`, `SCardTransmit`, `SCardControl`, `SCardDisconnect`, and `SCardReleaseContext`
-- [ ] T005 [P] Implement ISO 7816-4 BER-TLV encoder/decoder engine in `tools/tlv_tool.py` with bidirectional mapping between JSON/YAML dictionaries and constructed/primitive TLVs
-- [ ] T006 [P] Implement unit tests for BER-TLV codec round-trip validation with arbitrary nesting depth up to 8 levels in `tests/test_tlv_serialization.py`
-- [ ] T007 Implement Java Card 3.0.5 skeleton applet structure with pre-allocated flash storage buffer and transient RAM scratchpad in `applet/src/org/speckit/javacard/berstorage/BerStorageApplet.java`
+- [x] T004 Implement native Windows WinSCard ctypes wrapper in `tools/card_tool.py` supporting `SCardEstablishContext`, `SCardListReaders`, `SCardConnect`, `SCardTransmit`, `SCardControl`, `SCardDisconnect`, and `SCardReleaseContext`
+- [x] T005 [P] Implement ISO 7816-4 BER-TLV encoder/decoder engine in `tools/tlv_tool.py` with bidirectional mapping between JSON/YAML dictionaries and constructed/primitive TLVs
+- [x] T006 [P] Implement unit tests for BER-TLV codec round-trip validation with arbitrary nesting depth up to 8 levels in `tests/test_tlv_serialization.py`
+- [x] T007 Implement Java Card 3.0.5 skeleton applet structure with pre-allocated flash storage buffer and transient RAM scratchpad in `applet/src/org/speckit/javacard/berstorage/BerStorageApplet.java`
 
 **Checkpoint**: Foundation ready - PC/SC communication, BER-TLV codecs, and applet scaffold are verified. User story implementation can now proceed.
 
@@ -35,12 +35,12 @@
 
 **Independent Test**: Run `python tools/card_tool.py --diagnostics` to verify reader IOCTL properties, ATR decoding, CPLC production records, and GlobalPlatform SCP02 mutual authentication against Card Manager `A000000151000000`.
 
-- [ ] T008 [US1] Implement PC/SC Part 10 IOCTL feature detection (`IOCTL_GET_FEATURE_REQUEST` and `FEATURE_IFD_PIN_PROPERTIES`) to report Class 2 PINpad capabilities, buzzer support, and LCD absence in `tools/card_tool.py`
-- [ ] T009 [US1] Implement ISO 7816-3 ATR parser decoding TS, T0, interface bytes (TA1, TB1, TC1, TD1), historical bytes, and checksum for NXP JCOP 4 in `tools/card_tool.py`
-- [ ] T010 [US1] Implement CPLC parser extracting fabricator (`4790` NXP), chip type (`D321` SmartMX3), and OS release version from tag `9F7F` in `tools/card_tool.py`
-- [ ] T011 [US1] Implement GlobalPlatform 2.3 SCP02 (Option 55) mutual authentication (`INITIALIZE UPDATE`, `EXTERNAL AUTHENTICATE`) using 3DES session keys in `tools/card_tool.py`
-- [ ] T012 [US1] Create layered architecture documentation and APDU sequence diagrams in `docs/architecture.md`
-- [ ] T013 [US1] Create Identiv SPR332 hardware specifications, acoustic buzzer feedback reference table, and CCID command catalog in `docs/identiv_spr332.md`
+- [x] T008 [US1] Implement PC/SC Part 10 IOCTL feature detection (`IOCTL_GET_FEATURE_REQUEST` and `FEATURE_IFD_PIN_PROPERTIES`) to report Class 2 PINpad capabilities, buzzer support, and LCD absence in `tools/card_tool.py`
+- [x] T009 [US1] Implement ISO 7816-3 ATR parser decoding TS, T0, interface bytes (TA1, TB1, TC1, TD1), historical bytes, and checksum for NXP JCOP 4 in `tools/card_tool.py`
+- [x] T010 [US1] Implement CPLC parser extracting fabricator (`4790` NXP), chip type (`D321` SmartMX3), and OS release version from tag `9F7F` in `tools/card_tool.py`
+- [x] T011 [US1] Implement GlobalPlatform 2.3 SCP02 (Option 55) mutual authentication (`INITIALIZE UPDATE`, `EXTERNAL AUTHENTICATE`) using 3DES session keys in `tools/card_tool.py`
+- [x] T012 [US1] Create layered architecture documentation and APDU sequence diagrams in `docs/architecture.md`
+- [x] T013 [US1] Create Identiv SPR332 hardware specifications, acoustic buzzer feedback reference table, and CCID command catalog in `docs/identiv_spr332.md`
 
 **Checkpoint**: User Story 1 (MVP) is fully functional and verifiable on physical hardware.
 
