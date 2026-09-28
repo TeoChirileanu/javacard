@@ -31,4 +31,4 @@
 
 ## Notes
 
-- Feature specification complete and validated. Ready for implementation planning with `/speckit-plan`.
+- Feature specification, technical plan, design contracts, and tasks complete and validated. Ready for implementation with `/speckit-implement`.
