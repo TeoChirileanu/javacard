@@ -1,143 +1,123 @@
-# Feature Specification: Smart Card & Reader Architecture Exploration and Data I/O
+# Feature Specification: Smart Card Hello World GUI (.NET 11 AOT + WinUI 3 + Barebones Applet)
 
 **Feature Branch**: `001-smartcard-reader-exploration`
 
 **Created**: 2026-09-28
 
-**Status**: Draft
+**Updated**: 2026-09-28
 
-**Input**: User description: "vreau sa exploram in detaliu acest cititor cu smartcard si sa documentam tot ce putem face pe el, ma intereseaza sa inteleg arhitectura si cum se poate scrie/citit de pe card"
+**Status**: Active
+
+**Input**: User pivot: "drop la python si mergem pe .net 11 cu AOT + winui3 (win-dev-skills v0.6.1) + flaui + UFO; vreau un hello world gui: apas Citeste -> gol, apas Scrie -> ok, apas Citeste -> 'Hello, World!'; refacem applet-ul Java Card sa fie cat mai simplist si barebones ca sa inteleg fiecare linie de cod."
 
 ---
 
 ## Clarifications
 
-### Session 2026-09-28
-- Q: What data storage model and structure should be implemented on the smart card for read/write operations? → A: Option B - Hierarchical Key-Value store with arbitrary nesting depth (industry-standard ISO 7816-4 BER-TLV / RFC 8949 CBOR modeling nested dictionary/object trees similar to JSON/YAML).
-- Q: How should access to writing and reading data structures on the card be secured? (FR-008) → A: Option B - Hybrid tag-level access control (public branches are freely readable/writable; designated protected branches require prior PIN validation on the Identiv SPR332 PINpad before read or modification).
+### Session 2026-09-28 (Initial)
+- Q: Ce model de stocare si acces pe card? -> Initial s-a propus BER-TLV si protectie PIN.
+
+### Session 2026-09-28 (Pivot la .NET 11 + WinUI 3 + Barebones Applet)
+- **Host Stack**: Se elimina complet stratul Python CLI (`card_tool.py`, `tlv_tool.py`). Noul strat gazda este o aplicatie moderna **WinUI 3 (Windows App SDK) pe .NET 11 compilat Native AOT**, urmand principiile [win-dev-skills v0.6.1](https://github.com/microsoft/win-dev-skills/releases/tag/v0.6.1).
+- **Testare Automata GUI**: Se integreaza **FlaUI (UIA3)** pentru validare automatizata a fluxului din interfata, compatibil cu scenarii de asistenta autonoma tip **UFO (UI-Focused Agent)**.
+- **Java Card Applet**: S-a rescris de la zero intr-o varianta ultra-simplificata (barebones), fara parsare TLV si fara verificari PIN. Applet-ul aloca un buffer de memorie Flash (NVM) de 128 octeti si raspunde exclusiv la instructiuni standard ISO 7816-4:
+  - `READ BINARY` (`00 B0 00 00 00`): Citeste octetii existenti (sau returneaza 0 octeti daca este gol).
+  - `UPDATE BINARY` (`00 D6 00 00 Lc [Bytes]`): Salveaza octetii primiti in Flash.
 
 ---
 
 ## User Scenarios & Testing *(mandatory)*
 
-### User Story 1 - Full Architectural Discovery & Diagnostics (Priority: P1)
+### User Story 1 - Barebones "Hello World" Java Card Applet (Priority: P1)
 
-As a developer, I want to inspect, map, and document the end-to-end architecture connecting the host operating system, USB CCID driver, Identiv SPR332 PINpad hardware, and the NXP JCOP 4 P71 smart card microcontroller, so that I clearly understand every physical and logical layer of communication.
+Ca dezvoltator, vreau un applet Java Card minimal, curat si fara complexitate suplimentara, care sa stocheze un buffer de octeti in memoria Flash si sa permita scrierea si citirea acestuia conform standardului ISO 7816-4, astfel incat sa pot deschide fisierul `.java` si sa inteleg fiecare linie de cod in 2 minute.
 
-**Why this priority**: Without a precise understanding of the stack (PC/SC Part 10 IOCTLs, ISO 7816-3 T=1 transmission framing, GlobalPlatform 2.3 security domains, and Java Card 3.0.5 VM), read/write operations and applet deployment cannot be reliably executed or debugged.
+**Why this priority**: Pentru invatare si depanare sigura, avem nevoie de cel mai mic numitor comun functional (barebones) inainte de a adauga straturi criptografice sau de securitate.
 
-**Independent Test**: Can be verified independently by running hardware diagnostic commands that probe PC/SC subsystem properties, verify ISO 7816-3 ATR parsing, decode CPLC chip production data, and report GlobalPlatform life-cycle states.
-
-**Acceptance Scenarios**:
-1. **Given** the Identiv SPR332 reader connected via USB, **When** queried via Windows PC/SC IOCTLs (`IOCTL_GET_FEATURE_REQUEST` and `FEATURE_IFD_PIN_PROPERTIES`), **Then** report reader hardware capabilities: Class 2 PINpad, acoustic buzzer feedback, and absence of LCD (`wLcdLayout = 0`).
-2. **Given** the NXP JCOP 4 card inserted, **When** powering on the card interface, **Then** receive and decode the 15-byte ATR (`3B D5 18 FF 81 91 FE 1F C3 80 73 C8 21 10 0A`), establish T=1 protocol communication, and extract the CPLC identifier demonstrating the P71D321 silicon origin.
-3. **Given** the Card Manager selected, **When** querying Card Data (tag `0x66`), **Then** parse and document all registered OIDs (GlobalPlatform 2.3, SCP02 Option 55, Java Card 3.0.5 Classic).
-
----
-
-### User Story 2 - Card Data Reading & File Structure Inspection (Priority: P1)
-
-As a developer, I want to execute standardized read operations on the smart card across both administrative security domains and application payloads, so that I can inspect card metadata, security status, and stored binary objects.
-
-**Why this priority**: Reading data is fundamental to understanding what exists on the card (factory modules, card manager configuration, remaining memory) and verifying card contents prior to any write operations.
-
-**Independent Test**: Can be tested independently by querying standard GlobalPlatform tags (`GET DATA 9F7F` for CPLC, `GET DATA 0066` for Card Data, `GET DATA 00E0` for Key Info) and reading binary data from selectable applets.
+**Independent Test**: Se poate testa direct prin transmiterea secventiala de comenzi APDU (in simulator jCardSim sau pe card):
+1. `00 A4 04 00 08 F0 73 70 65 63 01 01 00` (SELECT) -> Raspuns: `90 00`
+2. `00 B0 00 00 00` (READ BINARY) -> Raspuns: date goale, status `90 00`
+3. `00 D6 00 00 0D 48 65 6C 6C 6F 2C 20 57 6F 72 6C 64 21` (UPDATE BINARY cu `"Hello, World!"`) -> Raspuns: `90 00`
+4. `00 B0 00 00 00` (READ BINARY) -> Raspuns: `48 65 6C 6C 6F 2C 20 57 6F 72 6C 64 21 90 00`
 
 **Acceptance Scenarios**:
-1. **Given** an unauthenticated card session, **When** sending `GET DATA` APDUs for public tags (`9F7F`, `0066`, `00E0`), **Then** retrieve the respective byte payloads with status word `9000` and parse them into structured JSON or formatted console output.
-2. **Given** an authenticated GlobalPlatform SCP02 session, **When** sending `GET STATUS` APDUs for Issuer Security Domain, Executable Load Files, and Application Instances, **Then** list all installed AIDs, their life-cycle states, and privilege bitmaps.
-3. **Given** a data-storage applet selected by its AID, **When** sending an ISO 7816-4 `GET DATA` or `READ RECORD` command targeting a public BER-TLV tag path, **Then** receive the exact stored binary payload or nested child TLV structure and confirm data integrity.
-4. **Given** an attempt to read a protected BER-TLV tag before PIN verification, **When** sending `GET DATA`, **Then** the card rejects the command with `SW: 6982` (Security status not satisfied).
+1. **Given** applet-ul instalat si selectat, **When** se trimite comanda `READ BINARY` inainte de orice scriere, **Then** cardul raspunde cu `9000` si 0 octeti de date (stare initiala: gol).
+2. **Given** applet-ul selectat, **When** se trimite comanda `UPDATE BINARY` cu octetii corespunzatori textului `"Hello, World!"`, **Then** cardul salveaza octetii in memorie si returneaza `9000`.
+3. **Given** un text scris anterior pe card, **When** se trimite din nou comanda `READ BINARY`, **Then** cardul returneaza exact octetii scrisi anterior si statusul `9000`.
+4. **Given** cardul este deconectat de la cititor si reconectat (power cycle), **When** se selecteaza applet-ul si se trimite `READ BINARY`, **Then** textul `"Hello, World!"` este returnat intact din memoria Flash.
 
 ---
 
-### User Story 3 - Card Data Writing & Non-Volatile Persistence (Priority: P2)
+### User Story 2 - .NET 11 Native AOT SmartCard Service (Priority: P1)
 
-As a developer, I want to execute write operations that persist arbitrary-depth hierarchical key-value data (BER-TLV structured objects / dictionaries) to the smart card's non-volatile flash memory (NVM), so that I understand how data is securely stored, updated, navigated, and protected on-card.
+Ca dezvoltator, vreau un serviciu PC/SC in .NET 11 compilat Native AOT (folosind `[LibraryImport("winscard.dll")]`) care sa interactioneze direct cu cititorul Identiv SPR332 si cardul inteligent fara runtime interpretat, fara dependinte greoaie si cu performanta maxima.
 
-**Why this priority**: Enabling persistent hierarchical data storage on the card unlocks practical smart card use-cases (storing structured credentials, identity records, metadata trees, or cryptographic configuration).
+**Why this priority**: Inlocuirea completa a Python cu o biblioteca .NET 11 Native AOT ofera o fundatie robusta, nativa de Windows, cu timp de pornire instantaneu si consum minim de resurse.
 
-**Independent Test**: Can be tested independently by writing a test payload to the card (via an ISO 7816-4 `PUT DATA` command containing nested BER-TLV elements), disconnecting/resetting the card session, and reading back individual leaf tags and full branches.
+**Independent Test**: Rularea testelor unitare/serviciu care apeleaza `SCardEstablishContext`, `SCardListReaders`, `SCardConnect`, `SCardTransmit` pe hardware-ul conectat.
 
 **Acceptance Scenarios**:
-1. **Given** a selected data-storage applet, **When** sending a `PUT DATA` APDU containing a structured BER-TLV payload (with primitive leaf tags or constructed container tags) targeting a public branch, **Then** the card parses and persists the hierarchy in NVM using an atomic transaction and returns `SW: 9000`.
-2. **Given** nested key-value objects previously written to the card, **When** the card is power-cycled (e.g. reader warm reset or disconnect) and queried for sub-trees or leaf tags, **Then** the retrieved data matches the written structure byte-for-byte.
-3. **Given** a write operation attempted with invalid parameters (e.g. exceeding available buffer length or malformed TLV framing), **Then** the card rejects the command with an appropriate error status word (e.g. `6700` Wrong Length, `6A80` Malformed Data, or `6A84` Not Enough Memory) without corrupting existing data.
-4. **Given** an unauthenticated session, **When** attempting a `PUT DATA` targeting a protected BER-TLV branch or tag, **Then** the card rejects the modification with `SW: 6982` (Security status not satisfied) and preserves NVM unmodified.
+1. **Given** cititorul Identiv SPR332 conectat, **When** serviciul enumera cititoarele, **Then** gaseste `SCM Microsystems Inc. SPRx32 USB Smart Card Reader 0`.
+2. **Given** un card JCOP 4 introdus, **When** se apeleaza conectarea pe protocolul `SCARD_PROTOCOL_T1`, **Then** conexiunea se deschide cu succes si returneaza ATR-ul valid.
+3. **Given** o conexiune activa, **When** se transmite comanda APDU `00 A4 ...`, **Then** se primeste raspunsul cu `SW = 0x9000`.
 
 ---
 
-### User Story 4 - Class 2 PINpad Hardware Verification & Acoustic Feedback (Priority: P3)
+### User Story 3 - WinUI 3 Desktop Hello World App (Priority: P2)
 
-As a developer, I want to interact with the Identiv SPR332 integrated keypad via PC/SC Part 10 PIN verification, so that I understand how on-reader PIN verification protects user credentials from host-side keyloggers and how acoustic buzzer signals provide sensory feedback.
+Ca utilizator final, vreau o aplicatie grafica moderna WinUI 3 pe Windows cu doua butoane mari („Citeste” si „Scrie”) si o zona clara de afisare, astfel incat sa pot experimenta interactiv ciclul de citire/scriere pe card:
+- Pasul 1: Apas „Citeste” -> aplicatia afiseaza `(Gol)`.
+- Pasul 2: Apas „Scrie” -> aplicatia scrie `"Hello, World!"` pe card si afiseaza `Scriere reusita: OK (9000)`.
+- Pasul 3: Apas din nou „Citeste” -> aplicatia citeste cardul si afiseaza `"Hello, World!"`.
 
-**Why this priority**: The Identiv reader is specifically a Class 2 device; demonstrating hardware-isolated PIN entry showcases the primary security benefit of this specific reader over standard Class 1 dongles.
+**Why this priority**: Reprezinta cerinta de baza a utilizatorului pentru interactiunea vizuala prietenoasa cu cardul inteligent pe desktop.
 
-**Independent Test**: Can be tested by invoking `FEATURE_VERIFY_PIN_DIRECT` (IOCTL `0x00313538`) from the host script, allowing the user to enter a PIN directly on the reader's numeric keypad and observing acoustic buzzer feedback.
+**Independent Test**: Lansarea aplicatiei WinUI 3 si parcurgerea manuala a fluxului UI Pas 1 -> Pas 2 -> Pas 3.
 
 **Acceptance Scenarios**:
-1. **Given** an applet requiring PIN authentication selected on the card, **When** the host application sends the `FEATURE_VERIFY_PIN_DIRECT` control code to the reader, **Then** the reader emits an audible prompt beep, captures user keystrokes with keypress audio feedback, and directly transmits the `VERIFY` APDU to the card without sending keystrokes to the host PC.
-2. **Given** an active PINpad entry prompt, **When** the user presses the Green `Enter` key, **Then** the reader emits a confirmation beep, sends the APDU, and returns the card's verification result (`9000` on success, `63CX` on wrong PIN).
-3. **Given** the user presses the Red `Cancel` key or the timeout elapses, **Then** the reader aborts the prompt with an error tone and returns an abort status to the host.
-4. **Given** a successful PIN verification on the Identiv PINpad, **When** subsequent `GET DATA` or `PUT DATA` APDUs target protected BER-TLV branches within the same session, **Then** the card permits read/write operations with `SW: 9000`.
+1. **Given** aplicatia WinUI 3 deschisa cu cititorul conectat, **When** utilizatorul da click pe butonul „Citeste” pe un card curat, **Then** eticheta de rezultat arata `(Gol) - 0 octeti primiti`.
+2. **Given** aplicatia deschisa, **When** utilizatorul da click pe butonul „Scrie”, **Then** cardul primeste payload-ul `"Hello, World!"`, iar eticheta de stare indica `OK (9000)`.
+3. **Given** scrierea a fost executata, **When** utilizatorul da click din nou pe „Citeste”, **Then** in caseta de text apare `"Hello, World!"`.
 
 ---
 
-### Edge Cases
+### User Story 4 - Automatizare Test UI cu FlaUI & Modelare UFO (Priority: P3)
 
-- **Card Tear / Abrupt Disconnection**: What happens if the card is unplugged mid-write? All multi-byte writes inside Java Card applets must be protected by `JCSystem.beginTransaction()` and `JCSystem.commitTransaction()` to prevent half-written state.
-- **RAM Overflow**: What happens if an APDU allocates temporary objects? Memory exhaustion occurs because total RAM is capped at 3,264 bytes. In accordance with the project Constitution, zero allocations are permitted in `process()`.
-- **Stack Overflow during Deep Traversal**: What happens if an incoming BER-TLV object has excessive nesting depth? Given the tight transient RAM (<= 3,264 bytes) and call stack limits of Java Card, the on-card parser MUST enforce an iterative parsing model or bound maximum nesting depth to 8 levels, rejecting deeper structures with `SW: 6A80` (Incorrect Parameters / Data Field).
-- **PIN Security State Invalidation**: What happens to validated PIN state upon card power removal or applet deselect? In accordance with ISO 7816-4 and Java Card `OwnerPIN` security semantics, any card tear, warm reset, or applet deselection MUST automatically reset the PIN verification flag to unauthenticated, re-locking protected BER-TLV branches.
-- **Factory Emulation Interference**: What happens if an applet uses an AID conflicting with `D276000085304A434F900101`? The card manager will reject instantiation with `6A80`. Custom applets must use unique private AIDs (e.g. standard proprietary RID `F0 00 ...`).
-- **GlobalPlatform Authentication Lockout**: What happens if invalid SCP02 keys are sent in `EXTERNAL AUTHENTICATE`? The card increments the failed authentication counter. Default keys (`40..4F`) must be maintained until an explicit key-rotation procedure is specified.
+Ca dezvoltator de calitate si automatizare, vreau un test automatizat folosind FlaUI (pe baza UI Automation 3 - UIA3) care sa lanseze aplicatia WinUI 3, sa localizeze butoanele dupa `AutomationId`, sa execute secventa de click-uri (Citeste -> Scrie -> Citeste) si sa valideze asertiunile fara interventie umana, pregatind terenul pentru agenti autonomi UI (UFO).
 
----
+**Why this priority**: Garanteaza ca aplicatia functioneaza de la un capat la altul (end-to-end) si previne regresiile vizuale sau functionale.
 
-## Requirements *(mandatory)*
+**Independent Test**: Rularea comenzii `dotnet test` pe proiectul de teste UI FlaUI.
 
-### Functional Requirements
-
-- **FR-001**: System MUST provide an interactive host-side CLI tool (`tools/card_tool.py`) capable of enumerating PC/SC readers, connecting via ISO 7816-3 T=1, and extracting raw ATRs.
-- **FR-002**: System MUST decode and document the NXP JCOP 4 P71 CPLC data, identifying the silicon fabricator, chip model (`P71D321`), and OS version level.
-- **FR-003**: System MUST execute GlobalPlatform 2.3 SCP02 (Option 55) mutual authentication against the Card Manager (`A000000151000000`) using 3DES session keys derived from default master keys.
-- **FR-004**: System MUST query and display the life-cycle status and privileges of all installed Executable Load Files, Packages, and Application Instances via `GET STATUS`.
-- **FR-005**: System MUST document the end-to-end architectural layers (Host Application → WinSCard API → USB CCID → Identiv SPR332 PINpad Hardware → Smart Card Silicon → Java Card VM → Applet).
-- **FR-006**: System MUST demonstrate reading structured hierarchical data from the card via standardized ISO 7816-4 APDU commands (`SELECT`, `GET DATA` addressing BER-TLV tag paths).
-- **FR-007**: System MUST specify and demonstrate writing persistent hierarchical data (arbitrary-depth nested BER-TLV key-value trees) to the card (via `PUT DATA` / `STORE DATA`) with atomic commit rollback guarantees.
-- **FR-008**: System MUST implement hybrid tag-level access control on-card where designated protected BER-TLV branches require successful PIN verification via the Identiv SPR332 numeric keypad (`FEATURE_VERIFY_PIN_DIRECT`), while public branches remain accessible without authentication.
-- **FR-009**: System MUST document all Identiv SPR332 buzzer sound patterns (Keypress, Insertion, Prompt, Confirmation, Error) to provide acoustic UX guidance in the absence of an LCD.
-- **FR-010**: System MUST provide a reference Java Card Data Storage Applet source code compatible with Java Card 3.0.5 Classic Edition implementing a zero-allocation BER-TLV storage engine that can be compiled to `.cap` and deployed to the card.
-- **FR-011**: System MUST provide a host-side serialization utility in Python that transforms standard JSON / YAML documents into ISO 7816-4 BER-TLV byte streams for writing, and reconstructs JSON / YAML from retrieved BER-TLV responses.
+**Acceptance Scenarios**:
+1. **Given** executabilul WinUI 3 compilat, **When** se lanseaza testul FlaUI, **Then** fereastra principala este identificata si adusa in prim-plan.
+2. **Given** butonul `BtnRead` identificat, **When** se apeleaza `.Click()`, **Then** textul din `TxtOutput` este egal cu `(Gol)`.
+3. **Given** butonul `BtnWrite` identificat, **When** se apeleaza `.Click()`, **Then** starea `TxtStatus` este `OK (9000)`.
+4. **Given** a doua apasare pe `BtnRead`, **When** se citeste `TxtOutput`, **Then** textul contine exact `"Hello, World!"`.
 
 ---
 
-### Key Entities
+## Edge Cases
 
-- **Smart Card Microcontroller (NXP P71D321)**: High-security secure element featuring ~140 KB NVM, 3.2 KB RAM, cryptographic coprocessors, running JCOP 4 OS.
-- **Smart Card Reader (Identiv SPR332)**: USB CCID Class 2 secure PINpad peripheral with integrated numeric keypad and audio buzzer.
-- **APDU (Application Protocol Data Unit)**: The standardized message unit exchanged between host and card (`CLA`, `INS`, `P1`, `P2`, `Lc`, `Data`, `Le`, `SW1/SW2`).
-- **Hierarchical BER-TLV Store**: Persistent NVM storage engine on the smart card organizing data as ISO/IEC 7816-4 ASN.1 BER-TLV elements (constructed tags for dictionaries/objects, primitive tags for scalar values), supporting arbitrary nesting depth up to memory capacity and tag-level ACL flags (public vs PIN-protected).
-- **PIN Credential**: 4-to-8 digit secret verified on-card via `OwnerPIN` API, entered securely through the reader PINpad, gating access to protected BER-TLV branches.
-
----
-
-## Success Criteria *(mandatory)*
-
-### Measurable Outcomes
-
-- **SC-001**: 100% of architectural layers (Hardware, Driver, Protocol, Card OS, Applet) are fully documented with corresponding APDU traces and message sequence diagrams.
-- **SC-002**: Read and write operations to the card complete with round-trip latency under 100ms per APDU for standard payloads up to 255 bytes.
-- **SC-003**: Written data survives complete card power removal and verification reads match original payloads with zero corruption across 10 consecutive test cycles.
-- **SC-004**: The Identiv SPR332 PINpad successfully captures and verifies PINs on-card without any PIN plaintext appearing in host process memory or USB sniffer logs.
-- **SC-005**: Serialization between Python JSON/YAML representations and card BER-TLV binary formats achieves 100% round-trip byte-level fidelity for supported primitives and nested objects.
-- **SC-006**: Attempts to access or modify protected BER-TLV tags without preceding PINpad authentication are rejected with status word `6982` in 100% of unauthorized attempts.
+- **Cardul nu este introdus in cititor**: Aplicatia WinUI 3 detecteaza lipsa cardului si afiseaza o notificare de tip `InfoBar` („Introduceti cardul in cititor”) fara sa blocheze interfata.
+- **Cititorul este deconectat in timpul rularii**: Serviciul PC/SC prinde codul de eroare `SCARD_E_NO_READERS_AVAILABLE` sau `SCARD_E_READER_UNAVAILABLE` si reactualizeaza lista de dispozitive.
+- **Payload mai mare de 128 de octeti**: Applet-ul Java Card barebones are o memorie de 128 octeti. Trimiterea unui buffer mai lung este respinsa sau trunchiata in siguranta.
+- **Power Cycle / Card Reset**: Datele din `memory` sunt salvate in NVM (Persistent Flash), astfel incat textul `"Hello, World!"` ramane memorat chiar daca utilizatorul scoate cardul din cititor si il reintroduce.
 
 ---
 
-## Assumptions
+## Functional Requirements
 
-- The Identiv SPR332 reader remains plugged into a USB port on the developer workstation and has the Windows inbox CCID driver active.
-- The smart card in the reader is the verified NXP JCOP 4 P71 card with default GlobalPlatform master keys (`404142434445464748494A4B4C4D4E4F`).
-- Python 3.11+ is available on the host with `winscard.dll` (standard on Windows 10/11) and `cryptography` installed.
-- Compilation of `.cap` files requires a Java Card 3.0.5 compatible converter/SDK (bundled API specifications are provided in `kit.zip`).
+- **FR-001**: Codul sursa al applet-ului Java Card (`BerStorageApplet.java`) TREBUIE sa fie sub 100 de linii, comentat integral in limba romana si sa implementeze strict `00 B0` (Read) si `00 D6` (Write) cu buffer NVM de 128 octeti.
+- **FR-002**: Solutia gazda TREBUIE dezvoltata in C# pe .NET 11 cu suport Native AOT, fara runtime Python.
+- **FR-003**: Comunicarea cu cititorul se va face prin WinSCard (`winscard.dll`) folosind API-ul nativ `[LibraryImport]` pentru compatibilitate Native AOT completa.
+- **FR-004**: Aplicatia grafica TREBUIE sa fie dezvoltata in WinUI 3 (Windows App SDK), oferind elemente XAML native, butoane dedicate „Citeste” si „Scrie” si `AutomationId` explicit pentru accesibilitate si testare.
+- **FR-005**: Solutia TREBUIE sa includa un proiect de teste automate cu `FlaUI.UIA3` care verifica secventa de citire-scriere-citire.
+
+---
+
+## Success Criteria *(measurable)*
+
+- **SC-001**: Timpul de pornire al aplicatiei Native AOT WinUI 3 este sub 200 ms.
+- **SC-002**: Rularea testului FlaUI valideaza ciclul complet (Citeste -> Gol, Scrie -> OK, Citeste -> Hello, World!) cu succes 100% in mod automat.
+- **SC-003**: Applet-ul Java Card are 100% code coverage pe masina virtuala simulata jCardSim.
