@@ -15,6 +15,10 @@ import argparse
 from typing import Union, Dict, Any, Tuple, List
 from pathlib import Path
 
+repo_root = Path(__file__).resolve().parent.parent
+if str(repo_root) not in sys.path:
+    sys.path.insert(0, str(repo_root))
+
 try:
     import yaml
     HAS_YAML = True
@@ -212,7 +216,12 @@ def main():
 
     if args.command == "encode":
         tag = int(args.tag, 16)
-        in_str = Path(args.input).read_text(encoding="utf-8") if Path(args.input).is_file() else args.input
+        if args.input == "-":
+            in_str = sys.stdin.read()
+        elif Path(args.input).is_file():
+            in_str = Path(args.input).read_text(encoding="utf-8")
+        else:
+            in_str = args.input
         tlv_bytes = BerTlvCodec.json_to_tlv(tag, in_str)
         print(f"BER-TLV Hex ({len(tlv_bytes)} bytes): {tlv_bytes.hex().upper()}")
 
@@ -252,7 +261,12 @@ def main():
 
     elif args.command == "write":
         tag = int(args.tag, 16)
-        in_str = Path(args.input).read_text(encoding="utf-8") if Path(args.input).is_file() else args.input
+        if args.input == "-":
+            in_str = sys.stdin.read()
+        elif Path(args.input).is_file():
+            in_str = Path(args.input).read_text(encoding="utf-8")
+        else:
+            in_str = args.input
         tlv_bytes = BerTlvCodec.json_to_tlv(tag, in_str)
         conn = CardConnection()
         try:
