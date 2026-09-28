@@ -14,6 +14,7 @@
 
 ### Session 2026-09-28
 - Q: What data storage model and structure should be implemented on the smart card for read/write operations? → A: Option B - Hierarchical Key-Value store with arbitrary nesting depth (industry-standard ISO 7816-4 BER-TLV / RFC 8949 CBOR modeling nested dictionary/object trees similar to JSON/YAML).
+- Q: How should access to writing and reading data structures on the card be secured? (FR-008) → A: Option B - Hybrid tag-level access control (public branches are freely readable/writable; designated protected branches require prior PIN validation on the Identiv SPR332 PINpad before read or modification).
 
 ---
 
@@ -45,7 +46,8 @@ As a developer, I want to execute standardized read operations on the smart card
 **Acceptance Scenarios**:
 1. **Given** an unauthenticated card session, **When** sending `GET DATA` APDUs for public tags (`9F7F`, `0066`, `00E0`), **Then** retrieve the respective byte payloads with status word `9000` and parse them into structured JSON or formatted console output.
 2. **Given** an authenticated GlobalPlatform SCP02 session, **When** sending `GET STATUS` APDUs for Issuer Security Domain, Executable Load Files, and Application Instances, **Then** list all installed AIDs, their life-cycle states, and privilege bitmaps.
-3. **Given** a data-storage applet selected by its AID, **When** sending an ISO 7816-4 `GET DATA` or `READ RECORD` command targeting a specific BER-TLV tag path, **Then** receive the exact stored binary payload or nested child TLV structure and confirm data integrity.
+3. **Given** a data-storage applet selected by its AID, **When** sending an ISO 7816-4 `GET DATA` or `READ RECORD` command targeting a public BER-TLV tag path, **Then** receive the exact stored binary payload or nested child TLV structure and confirm data integrity.
+4. **Given** an attempt to read a protected BER-TLV tag before PIN verification, **When** sending `GET DATA`, **Then** the card rejects the command with `SW: 6982` (Security status not satisfied).
 
 ---
 
@@ -58,9 +60,10 @@ As a developer, I want to execute write operations that persist arbitrary-depth 
 **Independent Test**: Can be tested independently by writing a test payload to the card (via an ISO 7816-4 `PUT DATA` command containing nested BER-TLV elements), disconnecting/resetting the card session, and reading back individual leaf tags and full branches.
 
 **Acceptance Scenarios**:
-1. **Given** a selected data-storage applet, **When** sending a `PUT DATA` APDU containing a structured BER-TLV payload (with primitive leaf tags or constructed container tags), **Then** the card parses and persists the hierarchy in NVM using an atomic transaction and returns `SW: 9000`.
+1. **Given** a selected data-storage applet, **When** sending a `PUT DATA` APDU containing a structured BER-TLV payload (with primitive leaf tags or constructed container tags) targeting a public branch, **Then** the card parses and persists the hierarchy in NVM using an atomic transaction and returns `SW: 9000`.
 2. **Given** nested key-value objects previously written to the card, **When** the card is power-cycled (e.g. reader warm reset or disconnect) and queried for sub-trees or leaf tags, **Then** the retrieved data matches the written structure byte-for-byte.
 3. **Given** a write operation attempted with invalid parameters (e.g. exceeding available buffer length or malformed TLV framing), **Then** the card rejects the command with an appropriate error status word (e.g. `6700` Wrong Length, `6A80` Malformed Data, or `6A84` Not Enough Memory) without corrupting existing data.
+4. **Given** an unauthenticated session, **When** attempting a `PUT DATA` targeting a protected BER-TLV branch or tag, **Then** the card rejects the modification with `SW: 6982` (Security status not satisfied) and preserves NVM unmodified.
 
 ---
 
@@ -76,6 +79,7 @@ As a developer, I want to interact with the Identiv SPR332 integrated keypad via
 1. **Given** an applet requiring PIN authentication selected on the card, **When** the host application sends the `FEATURE_VERIFY_PIN_DIRECT` control code to the reader, **Then** the reader emits an audible prompt beep, captures user keystrokes with keypress audio feedback, and directly transmits the `VERIFY` APDU to the card without sending keystrokes to the host PC.
 2. **Given** an active PINpad entry prompt, **When** the user presses the Green `Enter` key, **Then** the reader emits a confirmation beep, sends the APDU, and returns the card's verification result (`9000` on success, `63CX` on wrong PIN).
 3. **Given** the user presses the Red `Cancel` key or the timeout elapses, **Then** the reader aborts the prompt with an error tone and returns an abort status to the host.
+4. **Given** a successful PIN verification on the Identiv PINpad, **When** subsequent `GET DATA` or `PUT DATA` APDUs target protected BER-TLV branches within the same session, **Then** the card permits read/write operations with `SW: 9000`.
 
 ---
 
@@ -84,6 +88,7 @@ As a developer, I want to interact with the Identiv SPR332 integrated keypad via
 - **Card Tear / Abrupt Disconnection**: What happens if the card is unplugged mid-write? All multi-byte writes inside Java Card applets must be protected by `JCSystem.beginTransaction()` and `JCSystem.commitTransaction()` to prevent half-written state.
 - **RAM Overflow**: What happens if an APDU allocates temporary objects? Memory exhaustion occurs because total RAM is capped at 3,264 bytes. In accordance with the project Constitution, zero allocations are permitted in `process()`.
 - **Stack Overflow during Deep Traversal**: What happens if an incoming BER-TLV object has excessive nesting depth? Given the tight transient RAM (<= 3,264 bytes) and call stack limits of Java Card, the on-card parser MUST enforce an iterative parsing model or bound maximum nesting depth to 8 levels, rejecting deeper structures with `SW: 6A80` (Incorrect Parameters / Data Field).
+- **PIN Security State Invalidation**: What happens to validated PIN state upon card power removal or applet deselect? In accordance with ISO 7816-4 and Java Card `OwnerPIN` security semantics, any card tear, warm reset, or applet deselection MUST automatically reset the PIN verification flag to unauthenticated, re-locking protected BER-TLV branches.
 - **Factory Emulation Interference**: What happens if an applet uses an AID conflicting with `D276000085304A434F900101`? The card manager will reject instantiation with `6A80`. Custom applets must use unique private AIDs (e.g. standard proprietary RID `F0 00 ...`).
 - **GlobalPlatform Authentication Lockout**: What happens if invalid SCP02 keys are sent in `EXTERNAL AUTHENTICATE`? The card increments the failed authentication counter. Default keys (`40..4F`) must be maintained until an explicit key-rotation procedure is specified.
 
@@ -100,7 +105,7 @@ As a developer, I want to interact with the Identiv SPR332 integrated keypad via
 - **FR-005**: System MUST document the end-to-end architectural layers (Host Application → WinSCard API → USB CCID → Identiv SPR332 PINpad Hardware → Smart Card Silicon → Java Card VM → Applet).
 - **FR-006**: System MUST demonstrate reading structured hierarchical data from the card via standardized ISO 7816-4 APDU commands (`SELECT`, `GET DATA` addressing BER-TLV tag paths).
 - **FR-007**: System MUST specify and demonstrate writing persistent hierarchical data (arbitrary-depth nested BER-TLV key-value trees) to the card (via `PUT DATA` / `STORE DATA`) with atomic commit rollback guarantees.
-- **FR-008**: System MUST demonstrate PC/SC Part 10 PIN verification (`FEATURE_VERIFY_PIN_DIRECT`) utilizing the Identiv SPR332 numeric keypad without exposing PIN bytes to the host operating system.
+- **FR-008**: System MUST implement hybrid tag-level access control on-card where designated protected BER-TLV branches require successful PIN verification via the Identiv SPR332 numeric keypad (`FEATURE_VERIFY_PIN_DIRECT`), while public branches remain accessible without authentication.
 - **FR-009**: System MUST document all Identiv SPR332 buzzer sound patterns (Keypress, Insertion, Prompt, Confirmation, Error) to provide acoustic UX guidance in the absence of an LCD.
 - **FR-010**: System MUST provide a reference Java Card Data Storage Applet source code compatible with Java Card 3.0.5 Classic Edition implementing a zero-allocation BER-TLV storage engine that can be compiled to `.cap` and deployed to the card.
 - **FR-011**: System MUST provide a host-side serialization utility in Python that transforms standard JSON / YAML documents into ISO 7816-4 BER-TLV byte streams for writing, and reconstructs JSON / YAML from retrieved BER-TLV responses.
@@ -112,8 +117,8 @@ As a developer, I want to interact with the Identiv SPR332 integrated keypad via
 - **Smart Card Microcontroller (NXP P71D321)**: High-security secure element featuring ~140 KB NVM, 3.2 KB RAM, cryptographic coprocessors, running JCOP 4 OS.
 - **Smart Card Reader (Identiv SPR332)**: USB CCID Class 2 secure PINpad peripheral with integrated numeric keypad and audio buzzer.
 - **APDU (Application Protocol Data Unit)**: The standardized message unit exchanged between host and card (`CLA`, `INS`, `P1`, `P2`, `Lc`, `Data`, `Le`, `SW1/SW2`).
-- **Hierarchical BER-TLV Store**: Persistent NVM storage engine on the smart card organizing data as ISO/IEC 7816-4 ASN.1 BER-TLV elements (constructed tags for dictionaries/objects, primitive tags for scalar values), supporting arbitrary nesting depth up to memory capacity.
-- **PIN Credential**: 4-to-8 digit secret verified on-card via `OwnerPIN` API, entered securely through the reader PINpad.
+- **Hierarchical BER-TLV Store**: Persistent NVM storage engine on the smart card organizing data as ISO/IEC 7816-4 ASN.1 BER-TLV elements (constructed tags for dictionaries/objects, primitive tags for scalar values), supporting arbitrary nesting depth up to memory capacity and tag-level ACL flags (public vs PIN-protected).
+- **PIN Credential**: 4-to-8 digit secret verified on-card via `OwnerPIN` API, entered securely through the reader PINpad, gating access to protected BER-TLV branches.
 
 ---
 
@@ -126,6 +131,7 @@ As a developer, I want to interact with the Identiv SPR332 integrated keypad via
 - **SC-003**: Written data survives complete card power removal and verification reads match original payloads with zero corruption across 10 consecutive test cycles.
 - **SC-004**: The Identiv SPR332 PINpad successfully captures and verifies PINs on-card without any PIN plaintext appearing in host process memory or USB sniffer logs.
 - **SC-005**: Serialization between Python JSON/YAML representations and card BER-TLV binary formats achieves 100% round-trip byte-level fidelity for supported primitives and nested objects.
+- **SC-006**: Attempts to access or modify protected BER-TLV tags without preceding PINpad authentication are rejected with status word `6982` in 100% of unauthorized attempts.
 
 ---
 
