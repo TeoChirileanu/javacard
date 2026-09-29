@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
+using System.IO;
 using System.Text;
 using System.Threading.Tasks;
 using SmartCard.WinUI.Interop;
@@ -261,6 +263,99 @@ public sealed class SmartCardService : ISmartCardService
         }
 
         return ValueTask.FromResult(new CardOperationResult(false, $"Write failed: 0x{response.StatusWord:X4}", null, response.StatusWord));
+    }
+
+    public async Task<CardOperationResult> InstallAppletAsync()
+    {
+        string? readerToRestore = _currentReader;
+        bool wasConnected = IsConnected;
+
+        if (wasConnected)
+        {
+            await DisconnectAsync();
+        }
+
+        try
+        {
+            string javaPath = @"C:\Program Files\Java\jdk-21.0.12.1\bin\java.exe";
+            if (!File.Exists(javaPath))
+            {
+                string? javaHome = Environment.GetEnvironmentVariable("JAVA_HOME");
+                if (!string.IsNullOrEmpty(javaHome) && File.Exists(Path.Combine(javaHome, "bin", "java.exe")))
+                {
+                    javaPath = Path.Combine(javaHome, "bin", "java.exe");
+                }
+                else
+                {
+                    javaPath = "java";
+                }
+            }
+
+            DirectoryInfo? dir = new DirectoryInfo(AppContext.BaseDirectory);
+            while (dir != null && !Directory.Exists(Path.Combine(dir.FullName, ".git")))
+            {
+                dir = dir.Parent;
+            }
+            string repoRoot = dir?.FullName ?? @"C:\repos\javacard";
+
+            string gpJar = Path.Combine(repoRoot, "tools", "gp.jar");
+            string capFile = Path.Combine(repoRoot, "applet", "target", "berstorage.cap");
+
+            if (!File.Exists(gpJar))
+            {
+                return new CardOperationResult(false, $"gp.jar nu a fost găsit la {gpJar}", null, 0);
+            }
+            if (!File.Exists(capFile))
+            {
+                return new CardOperationResult(false, $"Fișierul CAP nu a fost găsit la {capFile}.", null, 0);
+            }
+
+            var startInfo = new ProcessStartInfo
+            {
+                FileName = javaPath,
+                Arguments = $"-jar \"{gpJar}\" -f --install \"{capFile}\"",
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                WorkingDirectory = repoRoot
+            };
+
+            using var process = Process.Start(startInfo);
+            if (process == null)
+            {
+                return new CardOperationResult(false, "Nu s-a putut lansa procesul Java pentru instalare", null, 0);
+            }
+
+            string stdout = await process.StandardOutput.ReadToEndAsync();
+            string stderr = await process.StandardError.ReadToEndAsync();
+            await process.WaitForExitAsync();
+
+            if (process.ExitCode != 0)
+            {
+                string errMsg = !string.IsNullOrWhiteSpace(stderr) ? stderr : stdout;
+                return new CardOperationResult(false, $"Instalare eșuată (cod {process.ExitCode}): {errMsg.Trim()}", null, 0x6F00);
+            }
+
+            if (!string.IsNullOrEmpty(readerToRestore) && readerToRestore != SimulatorReaderName)
+            {
+                await ConnectAsync(readerToRestore);
+            }
+
+            string modeMsg = IsEmulated ? "Emulare RAM" : "Fizic EEPROM (Hardware)";
+            return new CardOperationResult(true, $"Applet instalat cu succes pe cardul fizic! Mod activ: [{modeMsg}]", stdout.Trim(), 0x9000);
+        }
+        catch (Exception ex)
+        {
+            return new CardOperationResult(false, $"Excepție la instalare: {ex.Message}", null, 0);
+        }
+        finally
+        {
+            if (wasConnected && !IsConnected && !string.IsNullOrEmpty(readerToRestore))
+            {
+                await ConnectAsync(readerToRestore);
+            }
+        }
     }
 
     private ApduResponse Transmit(byte[] sendBuffer)

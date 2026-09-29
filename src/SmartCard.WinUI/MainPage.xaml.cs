@@ -112,7 +112,8 @@ public sealed partial class MainPage : Page
             if (connected)
             {
                 UpdateConnectionUi(true);
-                TxtStatus.Text = $"Conectat cu succes la {selectedReader}. Applet selectat (9000 OK).";
+                string modeTag = _smartCardService.IsEmulated ? "[Emulare RAM]" : "[Fizic EEPROM]";
+                TxtStatus.Text = $"Conectat cu succes la {selectedReader}. Mod stocare: {modeTag}. Applet selectat (9000 OK).";
             }
             else
             {
@@ -124,6 +125,33 @@ public sealed partial class MainPage : Page
         {
             UpdateConnectionUi(false);
             TxtStatus.Text = $"Eroare conectare card: {ex.Message}";
+        }
+        finally
+        {
+            SetBusy(false);
+        }
+    }
+
+    private async void BtnInstall_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            SetBusy(true, "Instalare applet GlobalPlatform (CAP) pe cardul fizic...");
+            CardOperationResult result = await _smartCardService.InstallAppletAsync();
+
+            if (result.Success)
+            {
+                TxtStatus.Text = result.Message;
+                UpdateConnectionUi(_smartCardService.IsConnected);
+            }
+            else
+            {
+                TxtStatus.Text = $"Eșec instalare applet: {result.Message}";
+            }
+        }
+        catch (Exception ex)
+        {
+            TxtStatus.Text = $"Eroare la instalare: {ex.Message}";
         }
         finally
         {
@@ -146,16 +174,17 @@ public sealed partial class MainPage : Page
         {
             SetBusy(true, "Transmitere APDU: READ BINARY (00 B0)...");
             string text = await _smartCardService.ReadTextAsync();
+            string modeTag = _smartCardService.IsEmulated ? "[Emulare RAM]" : "[Fizic EEPROM]";
 
             if (string.IsNullOrEmpty(text))
             {
                 TxtOutput.Text = "(Gol)";
-                TxtStatus.Text = "Citire finalizată: Memoria Flash a cardului este goală. Status 9000 OK.";
+                TxtStatus.Text = $"Citire finalizată: Memoria {modeTag} a cardului este goală. Status 9000 OK.";
             }
             else
             {
                 TxtOutput.Text = text;
-                TxtStatus.Text = $"Citire reușită: '{text}' ({text.Length} caractere). Status 9000 OK.";
+                TxtStatus.Text = $"Citire reușită din {modeTag}: '{text}' ({text.Length} caractere). Status 9000 OK.";
             }
         }
         catch (Exception ex)
@@ -178,16 +207,17 @@ public sealed partial class MainPage : Page
 
         try
         {
-            SetBusy(true, $"Transmitere APDU: UPDATE BINARY (00 D6) cu '{textToWrite}'...");
+            string modeTag = _smartCardService.IsEmulated ? "[Emulare RAM]" : "[Fizic EEPROM]";
+            SetBusy(true, $"Transmitere APDU: UPDATE BINARY (00 D6) în {modeTag} cu '{textToWrite}'...");
             CardOperationResult result = await _smartCardService.WriteTextAsync(textToWrite);
 
             if (result.Success)
             {
-                TxtStatus.Text = $"Scriere reușită: OK (0x{result.StatusWord:X4})";
+                TxtStatus.Text = $"Scriere reușită în {modeTag}: OK (0x{result.StatusWord:X4})";
             }
             else
             {
-                TxtStatus.Text = $"Eșec scriere: {result.Message} (0x{result.StatusWord:X4})";
+                TxtStatus.Text = $"Eșec scriere în {modeTag}: {result.Message} (0x{result.StatusWord:X4})";
             }
         }
         catch (Exception ex)
@@ -205,6 +235,25 @@ public sealed partial class MainPage : Page
         BtnRead.IsEnabled = isConnected;
         BtnWrite.IsEnabled = isConnected;
         BtnConnect.Content = isConnected ? "Deconectează" : "Conectează";
+
+        if (isConnected)
+        {
+            if (_smartCardService.IsEmulated)
+            {
+                TxtStorageMode.Text = "Emulare RAM";
+                TxtStorageMode.Foreground = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.Orange);
+            }
+            else
+            {
+                TxtStorageMode.Text = "Fizic EEPROM";
+                TxtStorageMode.Foreground = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.LightGreen);
+            }
+        }
+        else
+        {
+            TxtStorageMode.Text = "Deconectat";
+            TxtStorageMode.Foreground = (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources["TextFillColorSecondaryBrush"];
+        }
     }
 
     private void SetBusy(bool isBusy, string? statusMessage = null)

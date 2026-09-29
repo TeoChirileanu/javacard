@@ -71,6 +71,45 @@
                             Content="Conectează"
                             Style="{ThemeResource AccentButtonStyle}" />
                     </Grid>
+
+                    <!-- Row 2: Install Applet button & Storage Mode badge -->
+                    <Grid ColumnSpacing="8">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+
+                        <Button
+                            x:Name="BtnInstall"
+                            AutomationProperties.AutomationId="BtnInstall"
+                            Click="BtnInstall_Click"
+                            Content="Instalează Applet (CAP)" />
+
+                        <StackPanel
+                            Grid.Column="1"
+                            Orientation="Horizontal"
+                            HorizontalAlignment="Right"
+                            VerticalAlignment="Center"
+                            Spacing="6">
+                            <TextBlock
+                                Style="{ThemeResource CaptionTextBlockStyle}"
+                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                VerticalAlignment="Center"
+                                Text="Stocare:" />
+                            <Border
+                                x:Name="BadgeStorageMode"
+                                Padding="8,3"
+                                CornerRadius="4"
+                                Background="{ThemeResource LayerFillColorDefaultBrush}">
+                                <TextBlock
+                                    x:Name="TxtStorageMode"
+                                    AutomationProperties.AutomationId="TxtStorageMode"
+                                    FontWeight="SemiBold"
+                                    FontSize="11"
+                                    Text="Deconectat" />
+                            </Border>
+                        </StackPanel>
+                    </Grid>
                 </StackPanel>
             </Border>
 

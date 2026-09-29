@@ -16,6 +16,8 @@ public interface ISmartCardService : IAsyncDisposable
     ValueTask DisconnectAsync();
     ValueTask<string> ReadTextAsync();
     ValueTask<CardOperationResult> WriteTextAsync(string text);
+    Task<CardOperationResult> InstallAppletAsync();
     bool IsConnected { get; }
+    bool IsEmulated { get; }
     string? CurrentReader { get; }
 }
