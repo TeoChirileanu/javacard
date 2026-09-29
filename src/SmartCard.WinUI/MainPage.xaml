@@ -1,0 +1,174 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<Page
+    x:Class="SmartCard_WinUI.MainPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:local="using:SmartCard_WinUI"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    Loaded="Page_Loaded"
+    mc:Ignorable="d">
+
+    <ScrollViewer VerticalScrollBarVisibility="Auto">
+        <StackPanel
+            Margin="18,12,18,16"
+            HorizontalAlignment="Stretch"
+            Spacing="12">
+
+            <!-- Header -->
+            <StackPanel Spacing="4">
+                <TextBlock
+                    FontSize="22"
+                    FontWeight="SemiBold"
+                    Style="{ThemeResource TitleTextBlockStyle}"
+                    Text="Smart Card Reader &amp; Storage" />
+                <TextBlock
+                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                    Style="{ThemeResource CaptionTextBlockStyle}"
+                    Text="Explorare ISO 7816-4 cu .NET 11 Native AOT &amp; WinUI 3" />
+            </StackPanel>
+
+            <!-- Card: Reader Connection -->
+            <Border
+                Padding="14,12,14,12"
+                Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                BorderThickness="1"
+                CornerRadius="8">
+                <StackPanel Spacing="10">
+                    <TextBlock
+                        FontWeight="SemiBold"
+                        Style="{ThemeResource BodyStrongTextBlockStyle}"
+                        Text="1. Cititor Card PC/SC" />
+
+                    <Grid ColumnSpacing="8">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+
+                        <ComboBox
+                            x:Name="CmbReaders"
+                            HorizontalAlignment="Stretch"
+                            AutomationProperties.AutomationId="CmbReaders"
+                            AutomationProperties.Name="Cititoare disponibile"
+                            PlaceholderText="Selectează un cititor..."
+                            SelectionChanged="CmbReaders_SelectionChanged" />
+
+                        <Button
+                            x:Name="BtnRefresh"
+                            Grid.Column="1"
+                            AutomationProperties.AutomationId="BtnRefresh"
+                            Click="BtnRefresh_Click"
+                            Content="Reîmprospătează" />
+
+                        <Button
+                            x:Name="BtnConnect"
+                            Grid.Column="2"
+                            AutomationProperties.AutomationId="BtnConnect"
+                            Click="BtnConnect_Click"
+                            Content="Conectează"
+                            Style="{ThemeResource AccentButtonStyle}" />
+                    </Grid>
+                </StackPanel>
+            </Border>
+
+            <!-- Card: Data I/O Operations -->
+            <Border
+                Padding="14,12,14,12"
+                Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                BorderThickness="1"
+                CornerRadius="8">
+                <StackPanel Spacing="10">
+                    <TextBlock
+                        FontWeight="SemiBold"
+                        Style="{ThemeResource BodyStrongTextBlockStyle}"
+                        Text="2. Operațiuni Card (Hello, World!)" />
+
+                    <!-- Buttons Row -->
+                    <StackPanel
+                        HorizontalAlignment="Left"
+                        Orientation="Horizontal"
+                        Spacing="8">
+                        <Button
+                            x:Name="BtnRead"
+                            AutomationProperties.AutomationId="BtnRead"
+                            Click="BtnRead_Click"
+                            Content="Citește"
+                            IsEnabled="False"
+                            Style="{ThemeResource AccentButtonStyle}" />
+
+                        <Button
+                            x:Name="BtnWrite"
+                            AutomationProperties.AutomationId="BtnWrite"
+                            Click="BtnWrite_Click"
+                            Content="Scrie"
+                            IsEnabled="False" />
+                    </StackPanel>
+
+                    <!-- Text to write input -->
+                    <TextBox
+                        x:Name="TxtInput"
+                        AutomationProperties.AutomationId="TxtInput"
+                        Header="Text de scris pe card:"
+                        PlaceholderText="Introduceți textul (implicit: Hello, World!)"
+                        Text="Hello, World!" />
+
+                    <!-- Output display -->
+                    <StackPanel Spacing="4">
+                        <TextBlock
+                            FontWeight="Medium"
+                            Style="{ThemeResource CaptionTextBlockStyle}"
+                            Text="Conținut citit din memorie Flash:" />
+                        <Border
+                            Padding="10,8,10,8"
+                            Background="{ThemeResource LayerFillColorDefaultBrush}"
+                            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                            BorderThickness="1"
+                            CornerRadius="6">
+                            <TextBlock
+                                x:Name="TxtOutput"
+                                AutomationProperties.AutomationId="TxtOutput"
+                                FontSize="15"
+                                IsTextSelectionEnabled="True"
+                                Style="{ThemeResource BodyTextBlockStyle}"
+                                Text="(Neinițializat)" />
+                        </Border>
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+
+            <!-- Card: Status & Diagnostics -->
+            <Border
+                Padding="14,10,14,10"
+                Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                BorderThickness="1"
+                CornerRadius="8">
+                <StackPanel Spacing="8">
+                    <TextBlock
+                        FontWeight="SemiBold"
+                        Style="{ThemeResource BodyStrongTextBlockStyle}"
+                        Text="3. Stare și Diagnostic" />
+
+                    <ProgressBar
+                        x:Name="PrgBusy"
+                        AutomationProperties.AutomationId="PrgBusy"
+                        IsIndeterminate="False"
+                        Visibility="Collapsed" />
+
+                    <TextBlock
+                        x:Name="TxtStatus"
+                        AutomationProperties.AutomationId="TxtStatus"
+                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                        Style="{ThemeResource CaptionTextBlockStyle}"
+                        Text="Așteptare cititor..."
+                        TextWrapping="Wrap" />
+                </StackPanel>
+            </Border>
+
+        </StackPanel>
+    </ScrollViewer>
+</Page>

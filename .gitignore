@@ -50,3 +50,14 @@ Thumbs.db
 
 tools/maven/
 
+
+# C# / .NET
+[Bb]in/
+[Oo]bj/
+*.user
+*.userosscache
+*.sln.docstates
+*.suo
+packages/
+*.nupkg
+TestResults/
