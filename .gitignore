@@ -47,8 +47,11 @@ htmlcov/
 *~
 .DS_Store
 Thumbs.db
+*.log
+*.tmp
 
 tools/maven/
+tools/sdks/
 
 
 # C# / .NET

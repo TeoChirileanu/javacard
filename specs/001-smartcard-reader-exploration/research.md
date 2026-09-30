@@ -1,89 +1,87 @@
-# Technical Research: Smart Card & Reader Architecture Exploration and Data I/O
+# Technical Research: Smart Card Hello World GUI
 
-**Feature Branch**: `001-smartcard-reader-exploration`  
-**Date**: 2026-09-28  
-**Status**: Completed  
+**Feature Branch**: `001-smartcard-reader-exploration`
+**Date**: 2026-09-30
+**Status**: Complete
+**Spec**: [spec.md](spec.md) pivot 2026-09-28, string clarification 2026-09-30
+**Constitution**: v1.0.1
 
----
+## Decisions
 
-## 1. Technical Decisions & Tradeoffs
+### Decision 1: Flat 128-octet NVM, READ BINARY and UPDATE BINARY
 
-### Decision 1: Hierarchical Data Architecture (ISO/IEC 7816-4 BER-TLV vs CBOR vs Flat Records)
+- **Decision**: One persistent `byte[128]` and a `short` length. SELECT, READ BINARY (`00 B0`), and UPDATE BINARY (`00 D6`) only.
+- **Rationale**: The 2026-09-28 spec pivot asks for a file a developer can read in two minutes (FR-001). ISO 7816-4 already names these instructions. An empty card returns `9000` and zero data bytes, which the UI renders as `(Gol)`.
+- **Alternatives considered**:
+  - BER-TLV with GET DATA / PUT DATA and an 8-level tree. Rejected by the pivot. It hides the hello-world path behind a codec.
+  - CBOR. Same objection, plus no ISO 7816-4 instruction maps onto it directly.
 
-- **Decision**: Implement ISO/IEC 7816-4 ASN.1 Basic Encoding Rules Tag-Length-Value (BER-TLV) with recursive sub-tag traversal bounded to 8 nesting levels.
-- **Rationale**:
-  - BER-TLV is the universal native standard in smart card environments (EMV, eID, PIV, GlobalPlatform).
-  - Bit 6 of the tag byte natively distinguishes Primitive (scalar value) from Constructed (nested dictionary/object) nodes (`0` = primitive, `1` = constructed).
-  - Can be mapped 1:1 to JSON/YAML dictionaries (`constructed TLV`) and scalar values (numbers, strings, byte buffers).
-  - Enables zero-allocation parsing in Java Card: traversal is performed by inspecting byte offsets directly in the APDU buffer without instantiating parser objects.
-- **Alternatives Considered**:
-  - *CBOR (RFC 8949)*: Highly expressive, but standard smart card tooling and ISO 7816-4 APDUs natively operate on BER-TLV tag addressing (`GET DATA` / `PUT DATA`). CBOR would require substantial overhead for custom framing.
-  - *Flat Linear Records (ISO 7816-4 EF standard)*: Simple byte arrays with record numbers, but fails the user's explicit requirement for arbitrary nesting depth (hierarchical key-value tree like JSON/YAML).
+### Decision 2: Reject a payload longer than 128 octets
 
----
+- **Decision**: If `Lc` is greater than 128, the applet throws `6700` (wrong length) and does not change `memory` or `dataLength`.
+- **Rationale**: The spec allows reject or safe truncation. Rejection keeps the previous `"Hello, World!"` intact and matches a host that already refuses text over 128 bytes with status `6700`. Truncation would silently drop bytes.
+- **Alternatives considered**: Truncate to 128 and return `9000`. Rejected because the caller cannot tell that the card stored a prefix.
 
-### Decision 2: PC/SC Part 10 Class 2 PINpad Verification (`FEATURE_VERIFY_PIN_DIRECT`)
+### Decision 3: Atomic update of buffer and length
 
-- **Decision**: Communicate with the Identiv SPR332 PINpad using native `SCardControl` with IOCTL `0x00313538` (`FEATURE_VERIFY_PIN_DIRECT`).
-- **Rationale**:
-  - The Identiv SPR332 is a Class 2 reader featuring an integrated numeric keypad and buzzer, but no LCD display (`wLcdLayout = 0`).
-  - `FEATURE_VERIFY_PIN_DIRECT` instructs the reader firmware to intercept keypad entry directly into the CCID buffer, construct an ISO 7816-4 `VERIFY` APDU (`00 20 00 80 [Lc] [PIN]`), and transmit it directly to the card over the contact pins.
-  - Plaintext PIN digits never traverse the USB bus into Windows kernel memory or user-space host applications, eliminating host-side keystroke logging and memory dump attacks.
-  - Reader buzzer provides acoustic user feedback for prompt (double beep), keystrokes (click/tone), confirmation (melody), and error/timeout (low buzzer tone).
-- **Alternatives Considered**:
-  - *Class 1 Host-side PIN prompt (stdin)*: Plaintext PIN entered on PC keyboard and sent via standard `VERIFY` APDU. Rejected because it bypasses the physical hardware security of the Identiv Class 2 PINpad and violates Constitution Principle V.
-  - *`FEATURE_VERIFY_PIN_START` / `FEATURE_VERIFY_PIN_FINISH` (asynchronous)*: More complex state machine with no tangible benefit for single-threaded CLI tools over direct synchronous control.
+- **Decision**: `Util.arrayCopy` into `memory` and the assignment of `dataLength` run inside `JCSystem.beginTransaction()` / `commitTransaction()`.
+- **Rationale**: Constitution transaction atomicity. A tear between the copy and the length update would otherwise make a later READ BINARY return a mix of old and new bytes.
+- **Alternatives considered**: Rely on a single `arrayCopy`. Rejected because `dataLength` is a second persistent field.
 
----
+### Decision 4: AID `F0 73 70 65 63 01 01 00` (8 bytes)
 
-### Decision 3: Zero-Allocation Storage Engine & Memory Boundary (< 3.2 KB RAM)
+- **Decision**: Package RID `F0 73 70 65 63`. Applet AID `F0 73 70 65 63 01 01 00`. SELECT APDU `00 A4 04 00 08 F0 73 70 65 63 01 01 00`.
+- **Rationale**: This is the byte string in the User Story 1 independent test. The proprietary RID stays clear of factory MIFARE AID `D276000085304A434F900101` and package `D276000085304A434F9001` (constitution IV).
+- **Alternatives considered**: A 7-byte AID `F0 73 70 65 63 01 01` from the pre-pivot contract. Rejected because the spec's SELECT uses `Lc` `08` and a trailing `00`.
 
-- **Decision**: Pre-allocate a contiguous persistent NVM byte array (`byte[] storageBuffer`) during applet `install()`, managed via a compact compacting-tree index or linear TLV offset table, and use transient RAM scratchpads (`JCSystem.makeTransientByteArray(256, JCSystem.CLEAR_ON_DESELECT)`) for APDU parsing and path evaluation.
-- **Rationale**:
-  - The NXP SmartMX3 P71D321 chip budget verified in assessment is **3,264 bytes transient RAM** and **~140 KB persistent NVM**.
-  - Java Card garbage collection on smart cards is either absent or introduces non-deterministic wear/latency. Calling `new` in APDU `process()` is forbidden by Constitution Principle II.
-  - Traversal is iterative or bounded recursive (maximum stack frame depth 8) to avoid Java Card VM call stack overflow.
-  - Atomic transactions (`JCSystem.beginTransaction()` / `commitTransaction()`) wrap persistent updates to guarantee rollback safety against card tears.
-- **Alternatives Considered**:
-  - *Object-oriented linked nodes (`new TlvNode()`)*: Each child node an object reference. Rejected because dynamic allocation in `process()` causes rapid memory fragmentation and leaks in NVM.
+### Decision 5: Host is .NET 11 `[LibraryImport("winscard.dll")]`, not Python
 
----
+- **Decision**: `src/SmartCard.Core` calls `SCardEstablishContext`, `SCardListReaders`, `SCardConnect` with `SCARD_PROTOCOL_T1` (`0x00000002`), `SCardTransmit`, `SCardDisconnect`, and `SCardReleaseContext`.
+- **Rationale**: FR-002 and FR-003 require C# on .NET 11, Native AOT, and source-generated P/Invoke. The reader string asserted by User Story 2 is `SCM Microsystems Inc. SPRx32 USB Smart Card Reader 0`.
+- **Alternatives considered**:
+  - Python `ctypes` on `winscard.dll`. Removed by the pivot.
+  - `System.Device` or a third-party PC/SC package. Rejected because AOT needs a direct `[LibraryImport]` and no reflection-based `DllImport`.
 
-### Decision 4: GlobalPlatform AID Allocation & Factory Module Safety
+### Decision 6: WinUI 3 unpackaged app
 
-- **Decision**: Use proprietary AID RID `F0 73 70 65 63` (`F0 speck`) with Application AID `F0 73 70 65 63 01 01`.
-- **Rationale**:
-  - Prevents collision with the factory NXP MIFARE Plus EV1 4k module (`AID: D276000085304A434F900101`, package `D276000085304A434F9001`).
-  - Respects Constitution Principle IV (Hardware Guardrails & Factory Asset Protection).
-- **Alternatives Considered**:
-  - *Standard NIST PIV or OpenPGP AIDs*: Could collide with existing packages or cause unintended OS-level driver claiming (e.g. Windows Smart Card Minidriver).
+- **Decision**: `src/SmartCard.WinUI` is an unpackaged WinUI 3 app (`WindowsPackageType` `None`) on `net11.0-windows10.0.26100.0`, shaped like win-dev-skills v0.6.1. Buttons „Citeste” and „Scrie” expose AutomationIds `BtnRead` and `BtnWrite`.
+- **Rationale**: FR-004. Unpackaged launch is what FlaUI starts by executable path.
+- **Alternatives considered**: MSIX-packaged identity. Extra install step for a hello-world window, and a harder path for a local UI test.
 
----
+### Decision 7: Canonical status strings
 
-### Decision 5: Host-Side Tooling via Native Windows WinSCard API
+- **Decision**: Empty read sets `TxtOutput` to exactly `(Gol)`. Successful write sets `TxtStatus` to exactly `OK (9000)`. The following read sets `TxtOutput` to `"Hello, World!"`.
+- **Rationale**: Clarification session 2026-09-30 and FR-006. The longer phrases `(Gol) - 0 octeti primiti` and `Scriere reusita: OK (9000)` are withdrawn.
+- **Alternatives considered**: Keep both phrases and let the FlaUI test use a substring. Rejected because User Story 4 asserts equality on `(Gol)` and `OK (9000)`.
 
-- **Decision**: Implement all host interaction in Python using `ctypes` calling `winscard.dll` natively.
-- **Rationale**:
-  - No external driver dependencies or compiled C-extensions required (e.g., `pyscard` wheel issues on Windows).
-  - Direct access to `SCardControl`, `SCardTransmit`, `SCardConnect`, `SCardStatus`.
-  - Windows inbox CCID driver supports Identiv SPR332 natively with full PC/SC Part 10 feature reporting.
-- **Alternatives Considered**:
-  - *Java PC/SC (`javax.smartcardio`)*: Requires JDK runtime on the host machine. Python provides faster scripting, easier JSON/YAML integration, and zero external runtime dependencies beyond standard Python.
+### Decision 8: No PIN in feature 001
 
----
+- **Decision**: No VERIFY APDU, no `OwnerPIN`, no `FEATURE_VERIFY_PIN_DIRECT` call.
+- **Rationale**: The pivot removed PIN. Constitution v1.0.1 says Principle V applies when a feature collects a PIN, and a feature that does not MUST NOT add a PIN prompt to satisfy the principle.
+- **Alternatives considered**: Keep a dormant PIN so the old PINpad contract stays live. Rejected because it contradicts the pivot and the amendment.
 
-## 2. Best Practices & Design Patterns
+### Decision 9: jCardSim for coverage, the physical card for truth
 
-1. **APDU Command Structure**:
-   - `SELECT`: `00 A4 04 00 [AID_LEN] [AID] 00`
-   - `GET DATA (by tag/path)`: `00 CA [Tag MSB] [Tag LSB] [Path_Len/Data] 00`
-   - `PUT DATA (insert/update)`: `00 DA [Tag MSB] [Tag LSB] [Lc] [TLV Data]`
-   - `VERIFY PIN`: `00 20 00 80 [Lc] [PIN]`
-2. **Access Control List (ACL) Representation**:
-   - Tag namespace partition:
-     - Tags in range `0xDF00 - 0xDFFF` (Private / Public Unauthenticated).
-     - Tags in range `0xEF00 - 0xEFFF` (Constructed Protected - requires PIN validation).
-     - Alternatively, bit 7 of tag descriptor or explicit node attribute byte.
-3. **Transaction Safety**:
-   - Updates must check `storageBuffer` available capacity before modifying any bytes.
-   - Updates must execute inside `JCSystem.beginTransaction()` and terminate with `commitTransaction()`. If any parsing or memory limit error occurs, `abortTransaction()` is called.
+- **Decision**: JaCoCo line and branch coverage of `BerStorageApplet` is `1.00` under jCardSim (SC-003). Power-cycle retention, ATR, and T=1 connect are checked on the JCOP 4 card in the SPR332 (constitution I).
+- **Rationale**: The simulator cannot prove NVM across a real reset. The card cannot produce a branch-coverage number.
+- **Alternatives considered**: Hardware-only tests. They cannot measure SC-003.
+
+### Decision 10: Native AOT publish for the startup budget
+
+- **Decision**: Release publish of `src/SmartCard.WinUI` sets `PublishAot` for `win-x64` (`Properties/PublishProfiles/win-x64.pubxml`). The published exe is native (no CLR header). `CopyWinUiAppResources` copies `SmartCard.WinUI.pri` and the page `.xbf` files into the publish directory, because a Native AOT publish does not copy that XAML index. SC-001 is a cold start under 1 s, measured on that published executable.
+- **Rationale**: FR-002 requires Native AOT. A framework-dependent `dotnet run` does not answer SC-001.
+- **Measured 2026-09-30** on the published `win-x64` exe, process start until `MainWindowHandle` is set. Cold-cache start: 663 ms. Later starts: 424 ms, 369 ms, 388 ms, 399 ms, 379 ms, then 432 ms, 365 ms, 427 ms. Window-title visibility on one trio was 755 ms, 411 ms, 379 ms. Every sample is under 1 s, so SC-001 is met.
+- **Alternatives considered**: ReadyToRun without AOT. It still ships a runtime and does not meet the Native AOT requirement.
+
+### Decision 11: Simulator reader and RAM emulation stay
+
+- **Decision**: `src/SmartCard.Core/Services/SmartCardService.cs` keeps the always-listed reader `[Simulator] Java Card Virtual Reader (ISO 7816-4)` and the RAM emulation fallback used when SELECT of the on-card applet fails. Both remain retained prototyping outside US1–US4. The WinUI label for that mode is `Emulare RAM`. The physical path stays `Fizic EEPROM`.
+- **Rationale**: Constitution I allows simulation to assist prototyping. The SPR332 and the JCOP 4 card remain the source of truth for ATR, status words, and power-cycle retention. These two paths are outside FR-001 through FR-006 and are not a success criterion of feature 001. Convergence task T029 records that they stay.
+- **Alternatives considered**: Remove the simulator entry and the fallback so every click hits the card. Rejected because a labeled prototype path is still needed for an empty-card UI cycle and for a card whose applet is not flashed yet.
+
+## Best practices carried into the design
+
+1. Document every command in `contracts/apdu_interface.md` with CLA, INS, P1, P2, Lc, Data, Le, and SW.
+2. Map reader-removal codes `0x8010002E` and `0x80100017` to a refreshed reader list, and map no-card to InfoBar text `Introduceti cardul in cititor` without blocking the window.
+3. Install the CAP with GlobalPlatformPro so SCP02 authentication and GET STATUS happen before and after load. The install command must not delete the factory MIFARE package and must not change master keys.
+4. The on-screen CAP-install progress indicator is existing host behavior. It is outside FR-001 through FR-006 and is not a success criterion of feature 001.

@@ -28,6 +28,14 @@
             <version>5.10.2</version>
             <scope>test</scope>
         </dependency>
+
+        <!-- Doar unealta de build RemapThrowLines. Nu intra in applet. -->
+        <dependency>
+            <groupId>org.ow2.asm</groupId>
+            <artifactId>asm-tree</artifactId>
+            <version>9.6</version>
+            <scope>provided</scope>
+        </dependency>
     </dependencies>
 
     <build>
@@ -43,6 +51,71 @@
                     <source>1.8</source>
                     <target>1.8</target>
                 </configuration>
+                <executions>
+                    <execution>
+                        <id>compile-line-remap</id>
+                        <phase>process-classes</phase>
+                        <goals>
+                            <goal>compile</goal>
+                        </goals>
+                        <configuration>
+                            <compileSourceRoots>
+                                <compileSourceRoot>${project.basedir}/build-src</compileSourceRoot>
+                            </compileSourceRoots>
+                            <outputDirectory>${project.build.directory}/line-remap</outputDirectory>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>exec-maven-plugin</artifactId>
+                <version>3.5.0</version>
+                <executions>
+                    <execution>
+                        <id>remap-throwit-lines</id>
+                        <phase>process-classes</phase>
+                        <goals>
+                            <goal>java</goal>
+                        </goals>
+                        <configuration>
+                            <mainClass>RemapThrowLines</mainClass>
+                            <classpathScope>compile</classpathScope>
+                            <additionalClasspathElements>
+                                <additionalClasspathElement>${project.build.directory}/line-remap</additionalClasspathElement>
+                            </additionalClasspathElements>
+                            <arguments>
+                                <argument>${project.build.outputDirectory}/org/speckit/javacard/berstorage/BerStorageApplet.class</argument>
+                            </arguments>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-antrun-plugin</artifactId>
+                <version>3.1.0</version>
+                <executions>
+                    <execution>
+                        <id>build-cap</id>
+                        <phase>package</phase>
+                        <goals>
+                            <goal>run</goal>
+                        </goals>
+                        <configuration>
+                            <target>
+                                <taskdef name="javacard" classname="pro.javacard.ant.JavaCard" classpath="${project.basedir}/../tools/ant-javacard.jar"/>
+                                <javacard jckit="${project.basedir}/../tools/sdks/jc320v26.0_kit">
+                                    <cap output="${project.build.directory}/berstorage.cap" sources="${project.basedir}/src" package="org.speckit.javacard.berstorage" aid="F073706563" version="1.0" targetsdk="${project.basedir}/../tools/sdks/jc305u4_kit" verify="false">
+                                        <applet class="org.speckit.javacard.berstorage.BerStorageApplet" aid="F073706563010100"/>
+                                    </cap>
+                                </javacard>
+                            </target>
+                        </configuration>
+                    </execution>
+                </executions>
             </plugin>
 
             <!-- Maven Surefire Plugin (JUnit 5) -->

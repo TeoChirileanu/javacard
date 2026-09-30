@@ -1,113 +1,71 @@
-# Quickstart Validation Guide: Smart Card Exploration & BER-TLV Storage
+# Quickstart: Hello World on the SPR332
 
-**Feature Branch**: `001-smartcard-reader-exploration`  
-**Date**: 2026-09-28  
+**Feature Branch**: `001-smartcard-reader-exploration`
+**Date**: 2026-09-30
 
-This guide provides end-to-end instructions for validating the architecture, BER-TLV data reading/writing, and Identiv SPR332 PINpad direct hardware verification.
-
----
+Validate the applet, the PC/SC service, and the WinUI cycle. Contracts live in [apdu_interface.md](contracts/apdu_interface.md), [winscard_native_contract.md](contracts/winscard_native_contract.md), and [ui_automation_contract.md](contracts/ui_automation_contract.md). The buffer rules are in [data-model.md](data-model.md).
 
 ## Prerequisites
 
-1. **Hardware**:
-   - Identiv SPR332 / SPRx32 USB Class 2 PINpad reader connected via USB.
-   - NXP SmartMX3 P71D321 (JCOP 4) card inserted in reader contact slot.
-2. **Host Environment**:
-   - Windows 10/11 x64 with Windows inbox CCID Smart Card Service running (`SCardSvr`).
-   - Python 3.11+ installed.
-   - Python package `cryptography` installed (`pip install cryptography`).
+- Identiv SPR332 attached. Windows service `SCardSvr` running.
+- NXP JCOP 4 card in the contact slot.
+- JDK 21 and the repo's Maven toolchain for `applet/`.
+- .NET 11 SDK.
+- GlobalPlatformPro at `tools/gp.jar`. Install must not delete factory package `D276000085304A434F9001` and must not change GlobalPlatform master keys.
 
----
+## 1. Applet unit coverage
 
-## 1. Step 1: Run Live Hardware Diagnostics & Stack Discovery
-
-Verify physical connectivity, ATR decoding, CPLC production data, and GlobalPlatform Card Manager authentication:
+From the repo root:
 
 ```powershell
-python tools/card_tool.py --diagnostics
+mvn -f applet/pom.xml test
 ```
 
-**Expected Outcome**:
-- Reader detected: `SCM Microsystems Inc. SPRx32 USB Smart Card Reader 0`.
-- ATR decoded: `3B D5 18 FF 81 91 FE 1F C3 80 73 C8 21 10 0A` (T=1 protocol).
-- CPLC Fabricator: `47 90` (NXP Semiconductors), Chip: `D3 21` (P71D321).
-- SCP02 mutual authentication against Card Manager `A000000151000000` succeeds with `SW: 9000`.
-- Installed packages listed (verifying factory MIFARE `D276000085304A434F9001` is intact).
+**Expected**: the four User Story 1 steps pass in jCardSim.
 
----
+1. `00 A4 04 00 08 F0 73 70 65 63 01 01 00` → `90 00`
+2. `00 B0 00 00 00` → `90 00` and no data
+3. `00 D6 00 00 0D 48 65 6C 6C 6F 2C 20 57 6F 72 6C 64 21` → `90 00`
+4. `00 B0 00 00 00` → `48 65 6C 6C 6F 2C 20 57 6F 72 6C 64 21 90 00`
 
-## 2. Step 2: Validate BER-TLV Serialization (Offline Unit Test)
+A case with `Lc` greater than 128 returns `6700` and the stored bytes stay unchanged. JaCoCo line and branch coverage of `BerStorageApplet` is `1.00`.
 
-Verify that JSON and YAML data structures serialize to and from ISO 7816-4 BER-TLV with 100% round-trip fidelity:
+## 2. Load the CAP and check the physical card
 
 ```powershell
-python -m unittest tests/test_tlv_serialization.py
+java -jar tools\gp.jar -v -f --install applet\target\berstorage.cap
 ```
 
-**Expected Outcome**:
-- All test cases pass (`OK`).
-- Arbitrary depth nested dictionaries correctly convert into constructed tags (`bit 6 = 1`).
-- Primitive values (integers, strings, byte hex) correctly convert into leaf tags (`bit 6 = 0`).
+Then, on the SPR332, repeat the four APDUs. Remove the card, insert it again, SELECT, and READ BINARY. The response is still `48 65 6C 6C 6F 2C 20 57 6F 72 6C 64 21 90 00`.
 
----
+GET STATUS before and after install still lists factory package `D276000085304A434F9001`.
 
-## 3. Step 3: Test Unauthenticated / Public Read & Write Operations
-
-Write and read arbitrary hierarchical key-value data on public branches:
+## 3. Service
 
 ```powershell
-# Write a sample nested JSON document to public tag 0xDF01
-python tools/tlv_tool.py write --tag DF01 --input '{"device": {"name": "Identiv-SPR332", "class": 2}}'
-
-# Read back tag 0xDF01 and output as YAML
-python tools/tlv_tool.py read --tag DF01 --format yaml
+dotnet test tests/SmartCard.UiTests/SmartCard.UiTests.csproj --filter FullyQualifiedName~SmartCardServiceTests
 ```
 
-**Expected Outcome**:
-- Write APDU returns `SW: 9000`.
-- Read APDU returns matching YAML structure with identical key-value hierarchy.
+**Expected**: the reader list contains `SCM Microsystems Inc. SPRx32 USB Smart Card Reader 0`, connect uses T=1 and returns an ATR, and SELECT returns SW `0x9000`.
 
----
+## 4. Window, by hand
 
-## 4. Step 4: Validate Class 2 PINpad Hardware Verification (`FEATURE_VERIFY_PIN_DIRECT`)
+Launch `src/SmartCard.WinUI`.
 
-Test PIN-gated access using the physical numeric keypad and acoustic feedback on the Identiv reader:
+1. Citeste on an empty buffer. `TxtOutput` is `(Gol)`.
+2. Scrie. `TxtStatus` is `OK (9000)`.
+3. Citeste. `TxtOutput` is `Hello, World!`.
+
+With no card in the slot, the InfoBar reads `Introduceti cardul in cititor` and the window still responds.
+
+## 5. FlaUI
 
 ```powershell
-# Attempting to read protected tag 0xEF01 before PIN verification
-python tools/tlv_tool.py read --tag EF01
-# -> Expected Result: Command rejected with SW: 6982 (Security status not satisfied)
-
-# Trigger hardware PIN prompt on Identiv reader
-python tools/pinpad_tool.py verify
+dotnet test tests/SmartCard.UiTests/SmartCard.UiTests.csproj --filter FullyQualifiedName~HelloWorldUiFlowTests
 ```
 
-**Interactive User Flow on Reader**:
-1. Reader emits **two short beeps** (prompt).
-2. Enter PIN `1234` on the numeric keypad (reader emits a click sound per keypress; no characters on host PC).
-3. Press Green `Enter` key on reader keypad.
-4. Reader emits a **melodic confirmation tone**; host receives `SW: 9000`.
+**Expected**: the window comes forward; `BtnRead` yields `(Gol)`; `BtnWrite` yields `OK (9000)`; the second `BtnRead` yields `Hello, World!`.
 
-```powershell
-# Read protected tag 0xEF01 after successful PIN validation
-python tools/tlv_tool.py read --tag EF01
-# -> Expected Result: Returns protected data with SW: 9000!
-```
+## 6. Startup budget
 
----
-
-## 5. Step 5: Power-Cycle & Persistence Verification
-
-Reset the smart card session to confirm persistence in flash memory (NVM) and security lock state reset:
-
-```powershell
-python tools/card_tool.py --reset-card
-
-# Verify public tag DF01 still exists
-python tools/tlv_tool.py read --tag DF01
-# -> Returns public data (NVM persistence verified)
-
-# Verify protected tag EF01 is automatically re-locked
-python tools/tlv_tool.py read --tag EF01
-# -> Returns SW: 6982 (Automatic security reset on session reset verified)
-```
+Publish `src/SmartCard.WinUI` with `PublishAot` for `win-x64` and measure a cold start. The budget is under 1 s (SC-001).

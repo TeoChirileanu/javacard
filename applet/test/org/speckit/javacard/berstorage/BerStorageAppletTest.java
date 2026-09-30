@@ -85,10 +85,44 @@ public class BerStorageAppletTest {
     public void testUnsupportedInstruction() {
         simulator.selectApplet(appletAID);
 
-        // Comanda APDU cu instructiune necunoscuta: CLA 0x80, INS 0x99
-        CommandAPDU invalidCmd = new CommandAPDU(0x80, 0x99, 0x00, 0x00);
+        // Comanda APDU cu instructiune necunoscuta: CLA 0x00, INS 0x00
+        CommandAPDU invalidCmd = new CommandAPDU(0x00, 0x00, 0x00, 0x00);
         ResponseAPDU response = simulator.transmitCommand(invalidCmd);
 
         assertEquals(0x6D00, response.getSW(), "O instructiune necunoscuta trebuie respinsa cu 6D00");
+    }
+
+    @Test
+    @DisplayName("5. Dupa reset, READ BINARY intoarce aceiasi octeti Hello World")
+    public void testPowerCycleKeepsHelloWorld() {
+        simulator.selectApplet(appletAID);
+
+        byte[] payload = "Hello, World!".getBytes(StandardCharsets.UTF_8);
+        ResponseAPDU writeResp = simulator.transmitCommand(new CommandAPDU(0x00, 0xD6, 0x00, 0x00, payload));
+        assertEquals(0x9000, writeResp.getSW());
+
+        simulator.reset();
+        simulator.selectApplet(appletAID);
+
+        ResponseAPDU readResp = simulator.transmitCommand(new CommandAPDU(0x00, 0xB0, 0x00, 0x00, 256));
+        assertEquals(0x9000, readResp.getSW());
+        assertArrayEquals(payload, readResp.getData());
+    }
+
+    @Test
+    @DisplayName("6. Mai mult de 128 de octeti este respins cu 6700 si nu sterge datele vechi")
+    public void testPayloadLongerThan128IsRejected() {
+        simulator.selectApplet(appletAID);
+
+        byte[] payload = "Hello, World!".getBytes(StandardCharsets.UTF_8);
+        assertEquals(0x9000, simulator.transmitCommand(new CommandAPDU(0x00, 0xD6, 0x00, 0x00, payload)).getSW());
+
+        byte[] tooLong = new byte[129];
+        ResponseAPDU rejected = simulator.transmitCommand(new CommandAPDU(0x00, 0xD6, 0x00, 0x00, tooLong));
+        assertEquals(0x6700, rejected.getSW());
+
+        ResponseAPDU readResp = simulator.transmitCommand(new CommandAPDU(0x00, 0xB0, 0x00, 0x00, 256));
+        assertEquals(0x9000, readResp.getSW());
+        assertArrayEquals(payload, readResp.getData());
     }
 }

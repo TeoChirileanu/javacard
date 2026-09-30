@@ -28,6 +28,14 @@
                     Text="Explorare ISO 7816-4 cu .NET 11 Native AOT &amp; WinUI 3" />
             </StackPanel>
 
+            <InfoBar
+                x:Name="CardInfoBar"
+                AutomationProperties.AutomationId="CardInfoBar"
+                IsClosable="True"
+                IsOpen="False"
+                Message="Introduceti cardul in cititor"
+                Severity="Warning" />
+
             <!-- Card: Reader Connection -->
             <Border
                 Padding="14,12,14,12"

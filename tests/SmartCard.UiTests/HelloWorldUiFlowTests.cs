@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Linq;
 using System.Threading;
 using FlaUI.Core.AutomationElements;
 using FlaUI.Core.Capturing;
@@ -27,9 +28,8 @@ public class HelloWorldUiFlowTests : UiTestBase
     [Test]
     public void Test_Complete_HelloWorld_Flow()
     {
-        // 1. Launch WinUI 3 Desktop App
-        var app = LaunchApp();
-        var window = app.GetMainWindow(Automation, TimeSpan.FromSeconds(10));
+        // 1. Launch WinUI 3 Desktop App and bring it forward
+        var window = LaunchToForeground();
         Assert.That(window, Is.Not.Null, "Fereastra principala a aplicatiei WinUI 3 trebuie sa fie activa.");
 
         // Asteapta ca pagina si conexiunea PC/SC sa se finalizeze
@@ -63,6 +63,16 @@ public class HelloWorldUiFlowTests : UiTestBase
         Assert.That(readButton.IsEnabled, Is.True, $"Butonul Citește trebuie sa fie activ (Enabled). Stare curenta: '{statusLabel.Text}'");
         Assert.That(writeButton.IsEnabled, Is.True, $"Butonul Scrie trebuie sa fie activ (Enabled). Stare curenta: '{statusLabel.Text}'");
 
+        UseEmptySimulator(window);
+        btnRead = window.FindFirstDescendant(cf => cf.ByAutomationId("BtnRead"))?.AsButton();
+        btnWrite = window.FindFirstDescendant(cf => cf.ByAutomationId("BtnWrite"))?.AsButton();
+        txtOutput = window.FindFirstDescendant(cf => cf.ByAutomationId("TxtOutput"))?.AsLabel();
+        txtStatus = window.FindFirstDescendant(cf => cf.ByAutomationId("TxtStatus"))?.AsLabel();
+        readButton = btnRead!;
+        writeButton = btnWrite!;
+        outputLabel = txtOutput!;
+        statusLabel = txtStatus!;
+
         // Pasul 1: Apasare "Citește" pe card curat -> Returneaza (Gol)
         TestContext.WriteLine("[UFO E2E] Pasul 1: Executare click pe butonul 'Citește'...");
         btnRead.Invoke();
@@ -71,7 +81,7 @@ public class HelloWorldUiFlowTests : UiTestBase
         string afterReadEmpty = txtOutput.Text;
         TestContext.WriteLine($"[UFO E2E] Dupa primul click Citește -> Output: '{afterReadEmpty}', Status: '{txtStatus.Text}'");
         CaptureScreenshot(window, "ufo_step1_read_empty.png");
-        Assert.That(afterReadEmpty, Is.Not.Null, "Cardul trebuie sa returneze o valoare valida.");
+        Assert.That(afterReadEmpty, Is.EqualTo("(Gol)"));
 
         // Pasul 2: Apasare "Scrie" -> Salveaza "Hello, World!" pe card
         TestContext.WriteLine("[UFO E2E] Pasul 2: Executare click pe butonul 'Scrie'...");
@@ -81,7 +91,7 @@ public class HelloWorldUiFlowTests : UiTestBase
         string afterWriteStatus = txtStatus.Text;
         TestContext.WriteLine($"[UFO E2E] Dupa click Scrie -> Status: '{afterWriteStatus}'");
         CaptureScreenshot(window, "ufo_step2_write_ok.png");
-        Assert.That(afterWriteStatus, Does.Contain("9000").Or.Contain("OK"), "Statusul dupa scriere trebuie sa contina OK / 9000.");
+        Assert.That(afterWriteStatus, Is.EqualTo("OK (9000)"));
 
         // Pasul 3: Apasare din nou "Citește" -> Confirma textul "Hello, World!"
         TestContext.WriteLine("[UFO E2E] Pasul 3: Executare al doilea click pe 'Citește'...");
@@ -130,6 +140,35 @@ public class HelloWorldUiFlowTests : UiTestBase
 
         Assert.That(txtStatus.Text, Does.Contain("instalat cu succes"), $"Applet-ul trebuie sa fie instalat cu succes pe card. Mesaj curent: '{txtStatus.Text}'");
         Assert.That(txtStorageMode?.Text, Is.EqualTo("Fizic EEPROM"), "Dupa instalare pe cardul fizic, modul de stocare trebuie sa fie 'Fizic EEPROM'.");
+    }
+
+    private void UseEmptySimulator(Window window)
+    {
+        var connect = window.FindFirstDescendant(cf => cf.ByAutomationId("BtnConnect"))?.AsButton();
+        Assert.That(connect, Is.Not.Null);
+        if ((connect!.Name ?? string.Empty).Contains("Deconect", StringComparison.Ordinal))
+        {
+            connect.Invoke();
+            Thread.Sleep(400);
+        }
+
+        var combo = window.FindFirstDescendant(cf => cf.ByAutomationId("CmbReaders"))?.AsComboBox();
+        Assert.That(combo, Is.Not.Null);
+        combo!.Expand();
+        Thread.Sleep(300);
+        var simulator = combo.Items.First(item =>
+            (item.Name ?? string.Empty).Contains("Simulator", StringComparison.Ordinal)
+            || (item.Text ?? string.Empty).Contains("Simulator", StringComparison.Ordinal));
+        simulator.Click();
+        Thread.Sleep(300);
+
+        connect = window.FindFirstDescendant(cf => cf.ByAutomationId("BtnConnect"))?.AsButton();
+        connect!.Invoke();
+        var read = window.FindFirstDescendant(cf => cf.ByAutomationId("BtnRead"))!.AsButton();
+        for (int i = 0; i < 10 && !read.IsEnabled; i++)
+        {
+            Thread.Sleep(300);
+        }
     }
 
     private void CaptureScreenshot(AutomationElement element, string fileName)

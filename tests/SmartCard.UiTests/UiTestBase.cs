@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using FlaUI.Core;
+using FlaUI.Core.AutomationElements;
 using FlaUI.UIA3;
 using NUnit.Framework;
 
@@ -38,6 +39,14 @@ public abstract class UiTestBase
 
         App = Application.Launch(exePath);
         return App;
+    }
+
+    protected Window LaunchToForeground()
+    {
+        Application app = LaunchApp();
+        Window window = app.GetMainWindow(Automation, TimeSpan.FromSeconds(15));
+        window.Focus();
+        return window;
     }
 
     [TearDown]

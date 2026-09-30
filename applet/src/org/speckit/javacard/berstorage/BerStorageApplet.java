@@ -4,39 +4,35 @@ import javacard.framework.APDU;
 import javacard.framework.Applet;
 import javacard.framework.ISO7816;
 import javacard.framework.ISOException;
+import javacard.framework.JCSystem;
 import javacard.framework.Util;
 
 /**
- * Barebones "Hello, World!" Java Card Applet.
- *
- * Creat special pentru a fi cat mai simplu, educational si usor de inteles.
- * Fara protectii de PIN, fara parsare complicata de TLV, fara straturi suplimentare.
- *
- * Comenzi APDU suportate:
- * 1. SELECT Applet: 00 A4 04 00 07 F0 73 70 65 63 01 01 00 -> returneaza 9000 OK
- * 2. CITEȘTE (READ BINARY)  : 00 B0 00 00 00 -> trimite octetii stocati (sau 0 octeti daca e gol)
- * 3. SCRIE   (UPDATE BINARY): 00 D6 00 00 Lc [Bytes] -> salveaza octetii in memoria Flash
+ * Applet Hello World pentru Java Card 3.0.5.
+ * Un singur buffer de 128 de octeti in Flash, alocat la instalare.
+ * SELECT: 00 A4 04 00 08 F0 73 70 65 63 01 01 00 -> 9000
+ * READ BINARY (INS B0): 00 B0 00 00 00 -> octetii salvati, sau zero octeti daca e gol
+ * UPDATE BINARY (INS D6): 00 D6 00 00 Lc [octeti] -> salveaza in Flash
+ * AID applet: F0 73 70 65 63 01 01 00
  */
 public class BerStorageApplet extends Applet {
 
-    // Memorie persistenta salvata in Flash-ul cardului (NVM)
+    // Memorie persistenta. dataLength 0 inseamna card gol.
     private byte[] memory;
     private short dataLength;
 
-    // Constructor: ruleaza O SINGURA DATA la instalarea applet-ului pe card
+    // Constructorul ruleaza o singura data, din install(). Fara alocari in process().
     protected BerStorageApplet() {
-        memory = new byte[128]; // Buffer de 128 octeti in Flash
-        dataLength = 0;         // Initial este gol (Citeste returneaza gol)
+        memory = new byte[128];
+        dataLength = 0;
     }
 
-    // Metoda standard de instalare ceruta de masina virtuala Java Card
     public static void install(byte[] bArray, short bOffset, byte bLength) {
         new BerStorageApplet().register();
     }
 
-    // Punctul central de intrare: proceseaza fiecare comanda APDU trimisa de cititor
     public void process(APDU apdu) {
-        // Daca comanda este doar de selectare a applet-ului, returneaza direct 9000 OK
+        // Platforma a trimis SELECT. Raspunsul ramas este 9000, fara date.
         if (selectingApplet()) {
             return;
         }
@@ -44,33 +40,36 @@ public class BerStorageApplet extends Applet {
         byte[] buffer = apdu.getBuffer();
         byte ins = buffer[ISO7816.OFFSET_INS];
 
-        switch (ins) {
-
-            // CITEȘTE: 00 B0 00 00 00 (Standard ISO 7816-4 READ BINARY)
-            case (byte) 0xB0:
-                if (dataLength > 0) {
-                    // Copiaza octetii din memorie in buffer-ul APDU si ii trimite catre PC
-                    Util.arrayCopy(memory, (short) 0, buffer, (short) 0, dataLength);
-                    apdu.setOutgoingAndSend((short) 0, dataLength);
-                } else {
-                    // Daca memoria este goala, trimite 0 octeti inapoi (gol)
-                    apdu.setOutgoingAndSend((short) 0, (short) 0);
-                }
-                break;
-
-            // SCRIE: 00 D6 00 00 Lc [Bytes] (Standard ISO 7816-4 UPDATE BINARY)
-            case (byte) 0xD6:
-                // Citeste octetii veniti de la PC (ex: "Hello, World!")
-                short bytesRead = apdu.setIncomingAndReceive();
-
-                // Salveaza octetii primiti in memoria persistenta Flash a cardului
-                Util.arrayCopy(buffer, ISO7816.OFFSET_CDATA, memory, (short) 0, bytesRead);
-                dataLength = bytesRead;
-                break;
-
-            // Orice alta instructiune este respinsa cu "Instruction Not Supported"
-            default:
-                ISOException.throwIt(ISO7816.SW_INS_NOT_SUPPORTED);
+        if (ins == (byte) 0xB0) {
+            citeste(apdu, buffer);
+        } else if (ins == (byte) 0xD6) {
+            scrie(apdu, buffer);
+        } else {
+            // Orice alta instructiune: 6D00, memoria ramane neschimbata.
+            short sw = ISO7816.SW_INS_NOT_SUPPORTED;
+            ISOException.throwIt(sw);
         }
+    }
+
+    // Copiaza octetii salvati in raspuns. Gol: trimite lungime 0 si 9000.
+    private void citeste(APDU apdu, byte[] buffer) {
+        if (dataLength > 0) {
+            Util.arrayCopy(memory, (short) 0, buffer, (short) 0, dataLength);
+        }
+        apdu.setOutgoingAndSend((short) 0, dataLength);
+    }
+
+    // Lc peste 128 -> 6700, fara modificare. Altfel copiaza si lungimea in aceeasi tranzactie.
+    private void scrie(APDU apdu, byte[] buffer) {
+        short primiti = apdu.setIncomingAndReceive();
+        if (primiti > (short) 128) {
+            short sw = ISO7816.SW_WRONG_LENGTH;
+            ISOException.throwIt(sw);
+        }
+
+        JCSystem.beginTransaction();
+        Util.arrayCopy(buffer, ISO7816.OFFSET_CDATA, memory, (short) 0, primiti);
+        dataLength = primiti;
+        JCSystem.commitTransaction();
     }
 }

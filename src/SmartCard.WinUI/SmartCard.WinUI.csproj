@@ -78,5 +78,17 @@
     <PublishReadyToRun Condition="'$(Configuration)' != 'Debug'">True</PublishReadyToRun>
     <PublishTrimmed Condition="'$(Configuration)' == 'Debug'">False</PublishTrimmed>
     <PublishTrimmed Condition="'$(Configuration)' != 'Debug'">True</PublishTrimmed>
+    <PublishAot Condition="'$(Configuration)' != 'Debug'">true</PublishAot>
   </PropertyGroup>
+
+  <!-- Native AOT publish keeps the exe and the Windows App SDK binaries, and drops the loose XAML index.
+       WinUI loads SmartCard.WinUI.pri plus the page .xbf from the exe directory. -->
+  <Target Name="CopyWinUiAppResources" AfterTargets="Publish">
+    <ItemGroup>
+      <_WinUiAppResource Include="$(TargetDir)SmartCard.WinUI.pri" />
+      <_WinUiAppResource Include="$(TargetDir)*.xbf" />
+      <_WinUiAppResource Include="$(TargetDir)Assets\**\*.*" />
+    </ItemGroup>
+    <Copy SourceFiles="@(_WinUiAppResource)" DestinationFiles="@(_WinUiAppResource->'$(PublishDir)%(RecursiveDir)%(Filename)%(Extension)')" SkipUnchangedFiles="false" />
+  </Target>
 </Project>

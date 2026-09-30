@@ -32,6 +32,8 @@ public static partial class WinSCardNative
     public const int SCARD_E_NO_READERS_AVAILABLE = unchecked((int)0x8010002E);
     public const int SCARD_E_READER_UNAVAILABLE   = unchecked((int)0x80100017);
 
+    public const uint SCARD_ATTR_ATR_STRING = 0x00090303;
+
     [LibraryImport(WinSCardDll, EntryPoint = "SCardEstablishContext")]
     public static partial int SCardEstablishContext(
         uint dwScope,
@@ -67,6 +69,14 @@ public static partial class WinSCardNative
     public static partial int SCardDisconnect(
         nint hCard,
         uint dwDisposition
+    );
+
+    [LibraryImport(WinSCardDll, EntryPoint = "SCardGetAttrib")]
+    public static partial int SCardGetAttrib(
+        nint hCard,
+        uint dwAttrId,
+        byte[] pbAttr,
+        ref uint pcbAttrLen
     );
 
     [LibraryImport(WinSCardDll, EntryPoint = "SCardTransmit")]

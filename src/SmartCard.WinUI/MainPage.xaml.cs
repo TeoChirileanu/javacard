@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Threading.Tasks;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using SmartCard.WinUI.Interop;
 using SmartCard.WinUI.Models;
 using SmartCard.WinUI.Services;
 
@@ -11,6 +12,7 @@ namespace SmartCard_WinUI;
 public sealed partial class MainPage : Page
 {
     private readonly ISmartCardService _smartCardService = new SmartCardService();
+    private bool _suppressReaderChange;
 
     public MainPage()
     {
@@ -49,6 +51,7 @@ public sealed partial class MainPage : Page
     private async Task RefreshReadersAsync()
     {
         var readers = await _smartCardService.GetAvailableReadersAsync();
+        _suppressReaderChange = true;
         CmbReaders.Items.Clear();
 
         foreach (var reader in readers)
@@ -59,6 +62,19 @@ public sealed partial class MainPage : Page
         if (readers.Count > 0)
         {
             CmbReaders.SelectedIndex = 0;
+        }
+
+        _suppressReaderChange = false;
+
+        if (SmartCardNativeException.IsReaderLoss(_smartCardService.LastNativeStatus))
+        {
+            TxtStatus.Text = "Cititorul nu mai este disponibil. Lista a fost reîmprospătată.";
+            UpdateConnectionUi(false);
+            return;
+        }
+
+        if (readers.Count > 0)
+        {
             TxtStatus.Text = $"S-au detectat {readers.Count} cititor(i).";
         }
         else
@@ -111,15 +127,33 @@ public sealed partial class MainPage : Page
 
             if (connected)
             {
+                CardInfoBar.IsOpen = false;
                 UpdateConnectionUi(true);
                 string modeTag = _smartCardService.IsEmulated ? "[Emulare RAM]" : "[Fizic EEPROM]";
                 TxtStatus.Text = $"Conectat cu succes la {selectedReader}. Mod stocare: {modeTag}. Applet selectat (9000 OK).";
+            }
+            else if (_smartCardService.LastNativeStatus == WinSCardNative.SCARD_E_NO_SMARTCARD)
+            {
+                ShowNoCard();
+            }
+            else if (SmartCardNativeException.IsReaderLoss(_smartCardService.LastNativeStatus))
+            {
+                await RefreshReadersAsync();
             }
             else
             {
                 UpdateConnectionUi(false);
                 TxtStatus.Text = $"Conectarea la {selectedReader} a eșuat sau applet-ul nu a răspuns.";
             }
+        }
+        catch (SmartCardNativeException ex) when (SmartCardNativeException.IsReaderLoss(ex.NativeStatus))
+        {
+            UpdateConnectionUi(false);
+            await RefreshReadersAsync();
+        }
+        catch (SmartCardNativeException ex) when (ex.NativeStatus == WinSCardNative.SCARD_E_NO_SMARTCARD)
+        {
+            ShowNoCard();
         }
         catch (Exception ex)
         {
@@ -136,8 +170,17 @@ public sealed partial class MainPage : Page
     {
         try
         {
-            SetBusy(true, "Instalare applet GlobalPlatform (CAP) pe cardul fizic...");
-            CardOperationResult result = await _smartCardService.InstallAppletAsync();
+            bool finished = false;
+            var progress = new Progress<InstallProgress>(step =>
+            {
+                if (!finished)
+                {
+                    ShowInstallProgress(step.Percent, step.Stage);
+                }
+            });
+            ShowInstallProgress(1, "Pornire Java");
+            CardOperationResult result = await _smartCardService.InstallAppletAsync(progress);
+            finished = true;
 
             if (result.Success)
             {
@@ -159,13 +202,16 @@ public sealed partial class MainPage : Page
         }
     }
 
-    private void CmbReaders_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    private async void CmbReaders_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
-        // Cand utilizatorul schimba cititorul, resetam starea conexiunii
-        if (_smartCardService.IsConnected)
+        if (_suppressReaderChange || !_smartCardService.IsConnected)
         {
-            UpdateConnectionUi(false);
+            return;
         }
+
+        await _smartCardService.DisconnectAsync();
+        UpdateConnectionUi(false);
+        TxtStatus.Text = "Card deconectat.";
     }
 
     private async void BtnRead_Click(object sender, RoutedEventArgs e)
@@ -176,6 +222,7 @@ public sealed partial class MainPage : Page
             string text = await _smartCardService.ReadTextAsync();
             string modeTag = _smartCardService.IsEmulated ? "[Emulare RAM]" : "[Fizic EEPROM]";
 
+            CardInfoBar.IsOpen = false;
             if (string.IsNullOrEmpty(text))
             {
                 TxtOutput.Text = "(Gol)";
@@ -186,6 +233,14 @@ public sealed partial class MainPage : Page
                 TxtOutput.Text = text;
                 TxtStatus.Text = $"Citire reușită din {modeTag}: '{text}' ({text.Length} caractere). Status 9000 OK.";
             }
+        }
+        catch (SmartCardNativeException ex) when (SmartCardNativeException.IsReaderLoss(ex.NativeStatus))
+        {
+            await RefreshReadersAsync();
+        }
+        catch (SmartCardNativeException ex) when (ex.NativeStatus == WinSCardNative.SCARD_E_NO_SMARTCARD)
+        {
+            ShowNoCard();
         }
         catch (Exception ex)
         {
@@ -213,12 +268,29 @@ public sealed partial class MainPage : Page
 
             if (result.Success)
             {
-                TxtStatus.Text = $"Scriere reușită în {modeTag}: OK (0x{result.StatusWord:X4})";
+                CardInfoBar.IsOpen = false;
+                TxtStatus.Text = "OK (9000)";
+            }
+            else if (result.StatusWord == 0 && SmartCardNativeException.IsReaderLoss(_smartCardService.LastNativeStatus))
+            {
+                await RefreshReadersAsync();
+            }
+            else if (_smartCardService.LastNativeStatus == WinSCardNative.SCARD_E_NO_SMARTCARD)
+            {
+                ShowNoCard();
             }
             else
             {
                 TxtStatus.Text = $"Eșec scriere în {modeTag}: {result.Message} (0x{result.StatusWord:X4})";
             }
+        }
+        catch (SmartCardNativeException ex) when (SmartCardNativeException.IsReaderLoss(ex.NativeStatus))
+        {
+            await RefreshReadersAsync();
+        }
+        catch (SmartCardNativeException ex) when (ex.NativeStatus == WinSCardNative.SCARD_E_NO_SMARTCARD)
+        {
+            ShowNoCard();
         }
         catch (Exception ex)
         {
@@ -228,6 +300,14 @@ public sealed partial class MainPage : Page
         {
             SetBusy(false);
         }
+    }
+
+    private void ShowNoCard()
+    {
+        CardInfoBar.Message = "Introduceti cardul in cititor";
+        CardInfoBar.IsOpen = true;
+        UpdateConnectionUi(false);
+        TxtStatus.Text = "Introduceti cardul in cititor";
     }
 
     private void UpdateConnectionUi(bool isConnected)
@@ -254,6 +334,16 @@ public sealed partial class MainPage : Page
             TxtStorageMode.Text = "Deconectat";
             TxtStorageMode.Foreground = (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources["TextFillColorSecondaryBrush"];
         }
+    }
+
+    private void ShowInstallProgress(int percent, string stage)
+    {
+        PrgBusy.Visibility = Visibility.Visible;
+        PrgBusy.IsIndeterminate = false;
+        PrgBusy.Minimum = 0;
+        PrgBusy.Maximum = 100;
+        PrgBusy.Value = percent;
+        TxtStatus.Text = $"{percent}%  {stage}";
     }
 
     private void SetBusy(bool isBusy, string? statusMessage = null)

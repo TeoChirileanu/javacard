@@ -24,15 +24,15 @@ public sealed class SmartCardService : ISmartCardService
 
     private bool _isEmulated = false;
     private bool _isVirtualOnly = false;
-    private readonly byte[] _emulatedMemory = new byte[128];
+    private readonly byte[] _emulatedMemory = new byte[SmartCardProtocol.NvmCapacity];
     private int _emulatedDataLength = 0;
-
-    // Standard AID for BerStorageApplet: F0 73 70 65 63 01 01 00
-    private static readonly byte[] AppletAid = { 0xF0, 0x73, 0x70, 0x65, 0x63, 0x01, 0x01, 0x00 };
 
     public bool IsConnected => (_card != nint.Zero) || _isVirtualOnly;
     public bool IsEmulated => _isEmulated;
     public string? CurrentReader => _currentReader;
+    public int LastNativeStatus { get; private set; }
+    public string? CardAtr { get; private set; }
+    public uint ActiveProtocol => _activeProtocol;
 
     public ValueTask InitializeAsync()
     {
@@ -65,6 +65,7 @@ public sealed class SmartCardService : ISmartCardService
         {
             uint charCount = 0;
             int rc = WinSCardNative.SCardListReaders(_context, null, Span<char>.Empty, ref charCount);
+            LastNativeStatus = rc;
             if (rc == WinSCardNative.SCARD_S_SUCCESS && charCount > 1)
             {
                 char[] buffer = new char[charCount];
@@ -85,6 +86,10 @@ public sealed class SmartCardService : ISmartCardService
                     }
                 }
             }
+        }
+        else
+        {
+            LastNativeStatus = WinSCardNative.SCARD_E_NO_READERS_AVAILABLE;
         }
 
         // Add the virtual simulator reader option
@@ -111,6 +116,9 @@ public sealed class SmartCardService : ISmartCardService
             _isVirtualOnly = true;
             _isEmulated = true;
             _currentReader = readerName;
+            _activeProtocol = WinSCardNative.SCARD_PROTOCOL_T1;
+            CardAtr = null;
+            LastNativeStatus = WinSCardNative.SCARD_S_SUCCESS;
             return ValueTask.FromResult(true);
         }
 
@@ -123,19 +131,22 @@ public sealed class SmartCardService : ISmartCardService
             _context,
             readerName,
             WinSCardNative.SCARD_SHARE_SHARED,
-            WinSCardNative.SCARD_PROTOCOL_T1 | WinSCardNative.SCARD_PROTOCOL_T0,
+            WinSCardNative.SCARD_PROTOCOL_T1,
             out _card,
             out _activeProtocol
         );
+        LastNativeStatus = rc;
 
         if (rc != WinSCardNative.SCARD_S_SUCCESS)
         {
             _card = nint.Zero;
             _currentReader = null;
+            CardAtr = null;
             return ValueTask.FromResult(false);
         }
 
         _currentReader = readerName;
+        ReadAtr();
 
         // Try selecting the on-card BerStorageApplet instance
         try
@@ -169,18 +180,82 @@ public sealed class SmartCardService : ISmartCardService
         _isVirtualOnly = false;
         _isEmulated = false;
         _currentReader = null;
+        CardAtr = null;
+        _activeProtocol = WinSCardNative.SCARD_PROTOCOL_UNDEFINED;
+    }
+
+    public ValueTask<ApduResponse> TransmitAsync(ApduCommand command)
+    {
+        if (_isEmulated || _isVirtualOnly)
+        {
+            return ValueTask.FromResult(TransmitEmulated(command));
+        }
+
+        return ValueTask.FromResult(Transmit(command.ToBytes()));
+    }
+
+    private ApduResponse TransmitEmulated(ApduCommand command)
+    {
+        if (command.Ins == 0xA4)
+        {
+            bool sameAid = command.Data.Length == SmartCardProtocol.AppletAid.Length
+                && command.Data.Span.SequenceEqual(SmartCardProtocol.AppletAid);
+            return sameAid
+                ? new ApduResponse(ReadOnlyMemory<byte>.Empty, SmartCardProtocol.SuccessStatusWord)
+                : new ApduResponse(ReadOnlyMemory<byte>.Empty, 0x6A82);
+        }
+
+        if (command.Ins == 0xB0)
+        {
+            if (_emulatedDataLength == 0)
+            {
+                return new ApduResponse(ReadOnlyMemory<byte>.Empty, SmartCardProtocol.SuccessStatusWord);
+            }
+
+            byte[] data = new byte[_emulatedDataLength];
+            Array.Copy(_emulatedMemory, data, _emulatedDataLength);
+            return new ApduResponse(data, SmartCardProtocol.SuccessStatusWord);
+        }
+
+        if (command.Ins == 0xD6)
+        {
+            if (command.Data.Length > SmartCardProtocol.NvmCapacity)
+            {
+                return new ApduResponse(ReadOnlyMemory<byte>.Empty, 0x6700);
+            }
+
+            command.Data.Span.CopyTo(_emulatedMemory);
+            _emulatedDataLength = command.Data.Length;
+            return new ApduResponse(ReadOnlyMemory<byte>.Empty, SmartCardProtocol.SuccessStatusWord);
+        }
+
+        return new ApduResponse(ReadOnlyMemory<byte>.Empty, 0x6D00);
+    }
+
+    private void ReadAtr()
+    {
+        byte[] atr = new byte[36];
+        uint length = (uint)atr.Length;
+        int rc = WinSCardNative.SCardGetAttrib(_card, WinSCardNative.SCARD_ATTR_ATR_STRING, atr, ref length);
+        if (rc == WinSCardNative.SCARD_S_SUCCESS && length > 0)
+        {
+            CardAtr = Convert.ToHexString(atr, 0, (int)length);
+            return;
+        }
+
+        CardAtr = null;
     }
 
     private void SelectApplet()
     {
         // SELECT APDU: 00 A4 04 00 08 [AID]
-        byte[] selectCmd = new byte[5 + AppletAid.Length];
+        byte[] selectCmd = new byte[5 + SmartCardProtocol.AppletAid.Length];
         selectCmd[0] = 0x00; // CLA
         selectCmd[1] = 0xA4; // INS (SELECT)
         selectCmd[2] = 0x04; // P1 (Select by name / AID)
         selectCmd[3] = 0x00; // P2 (First or only occurrence)
-        selectCmd[4] = (byte)AppletAid.Length; // Lc
-        AppletAid.CopyTo(selectCmd, 5);
+        selectCmd[4] = (byte)SmartCardProtocol.AppletAid.Length; // Lc
+        SmartCardProtocol.AppletAid.CopyTo(selectCmd, 5);
 
         ApduResponse response = Transmit(selectCmd);
         if (!response.IsSuccess)
@@ -233,7 +308,7 @@ public sealed class SmartCardService : ISmartCardService
         }
 
         byte[] textBytes = Encoding.UTF8.GetBytes(text ?? string.Empty);
-        if (textBytes.Length > 128)
+        if (textBytes.Length > SmartCardProtocol.NvmCapacity)
         {
             return ValueTask.FromResult(new CardOperationResult(false, "Text payload exceeds 128 bytes", null, 0x6700));
         }
@@ -265,7 +340,7 @@ public sealed class SmartCardService : ISmartCardService
         return ValueTask.FromResult(new CardOperationResult(false, $"Write failed: 0x{response.StatusWord:X4}", null, response.StatusWord));
     }
 
-    public async Task<CardOperationResult> InstallAppletAsync()
+    public async Task<CardOperationResult> InstallAppletAsync(IProgress<InstallProgress>? progress = null)
     {
         string? readerToRestore = _currentReader;
         bool wasConnected = IsConnected;
@@ -313,7 +388,7 @@ public sealed class SmartCardService : ISmartCardService
             var startInfo = new ProcessStartInfo
             {
                 FileName = javaPath,
-                Arguments = $"-jar \"{gpJar}\" -f --install \"{capFile}\"",
+                Arguments = $"-jar \"{gpJar}\" -v -f --install \"{capFile}\"",
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
                 UseShellExecute = false,
@@ -321,29 +396,42 @@ public sealed class SmartCardService : ISmartCardService
                 WorkingDirectory = repoRoot
             };
 
+            progress?.Report(new InstallProgress(1, "Pornire Java"));
+
             using var process = Process.Start(startInfo);
             if (process == null)
             {
                 return new CardOperationResult(false, "Nu s-a putut lansa procesul Java pentru instalare", null, 0);
             }
 
-            string stdout = await process.StandardOutput.ReadToEndAsync();
-            string stderr = await process.StandardError.ReadToEndAsync();
+            var stdout = new StringBuilder();
+            var stderr = new StringBuilder();
+            Task pumpOut = PumpInstallOutput(process.StandardOutput, stdout, progress);
+            Task pumpErr = PumpInstallOutput(process.StandardError, stderr, progress);
+            await Task.WhenAll(pumpOut, pumpErr);
             await process.WaitForExitAsync();
 
             if (process.ExitCode != 0)
             {
-                string errMsg = !string.IsNullOrWhiteSpace(stderr) ? stderr : stdout;
+                string errMsg = stderr.Length > 0 ? stderr.ToString() : stdout.ToString();
+                errMsg = string.Join(Environment.NewLine, errMsg.Split('\n', '\r')
+                    .Where(l => !l.Contains("no keys given", StringComparison.OrdinalIgnoreCase)
+                             && !l.Contains("defaulting to", StringComparison.OrdinalIgnoreCase)
+                             && l.Length > 0));
                 return new CardOperationResult(false, $"Instalare eșuată (cod {process.ExitCode}): {errMsg.Trim()}", null, 0x6F00);
             }
+
+            progress?.Report(new InstallProgress(97, "Deconectare cititor"));
 
             if (!string.IsNullOrEmpty(readerToRestore) && readerToRestore != SimulatorReaderName)
             {
                 await ConnectAsync(readerToRestore);
             }
 
+            progress?.Report(new InstallProgress(100, "Applet instalat"));
+
             string modeMsg = IsEmulated ? "Emulare RAM" : "Fizic EEPROM (Hardware)";
-            return new CardOperationResult(true, $"Applet instalat cu succes pe cardul fizic! Mod activ: [{modeMsg}]", stdout.Trim(), 0x9000);
+            return new CardOperationResult(true, $"Applet instalat cu succes pe cardul fizic! Mod activ: [{modeMsg}]", stdout.ToString().Trim(), 0x9000);
         }
         catch (Exception ex)
         {
@@ -354,6 +442,25 @@ public sealed class SmartCardService : ISmartCardService
             if (wasConnected && !IsConnected && !string.IsNullOrEmpty(readerToRestore))
             {
                 await ConnectAsync(readerToRestore);
+            }
+        }
+    }
+
+    private static async Task PumpInstallOutput(StreamReader reader, StringBuilder sink, IProgress<InstallProgress>? progress)
+    {
+        while (true)
+        {
+            string? line = await reader.ReadLineAsync();
+            if (line is null)
+            {
+                return;
+            }
+
+            sink.AppendLine(line);
+            InstallProgress? step = GpInstallProgress.FromOutputLine(line);
+            if (step is not null)
+            {
+                progress?.Report(step.Value);
             }
         }
     }
@@ -384,7 +491,13 @@ public sealed class SmartCardService : ISmartCardService
 
         if (rc != WinSCardNative.SCARD_S_SUCCESS)
         {
-            throw new InvalidOperationException($"SCardTransmit failed with error 0x{rc:X8}");
+            LastNativeStatus = rc;
+            if (SmartCardNativeException.IsReaderLoss(rc) || rc == WinSCardNative.SCARD_E_NO_SMARTCARD)
+            {
+                DisconnectInternal();
+            }
+
+            throw new SmartCardNativeException(rc);
         }
 
         if (recvLen < 2)

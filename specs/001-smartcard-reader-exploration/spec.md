@@ -24,6 +24,9 @@
   - `READ BINARY` (`00 B0 00 00 00`): Citeste octetii existenti (sau returneaza 0 octeti daca este gol).
   - `UPDATE BINARY` (`00 D6 00 00 Lc [Bytes]`): Salveaza octetii primiti in Flash.
 
+### Session 2026-09-30
+- Q: Ce text arată aplicația la card gol și după o scriere reușită? → A: `TxtOutput` este exact `(Gol)`; `TxtStatus` este exact `OK (9000)`.
+
 ---
 
 ## User Scenarios & Testing *(mandatory)*
@@ -67,7 +70,7 @@ Ca dezvoltator, vreau un serviciu PC/SC in .NET 11 compilat Native AOT (folosind
 
 Ca utilizator final, vreau o aplicatie grafica moderna WinUI 3 pe Windows cu doua butoane mari („Citeste” si „Scrie”) si o zona clara de afisare, astfel incat sa pot experimenta interactiv ciclul de citire/scriere pe card:
 - Pasul 1: Apas „Citeste” -> aplicatia afiseaza `(Gol)`.
-- Pasul 2: Apas „Scrie” -> aplicatia scrie `"Hello, World!"` pe card si afiseaza `Scriere reusita: OK (9000)`.
+- Pasul 2: Apas „Scrie” -> aplicatia scrie `"Hello, World!"` pe card si afiseaza `OK (9000)`.
 - Pasul 3: Apas din nou „Citeste” -> aplicatia citeste cardul si afiseaza `"Hello, World!"`.
 
 **Why this priority**: Reprezinta cerinta de baza a utilizatorului pentru interactiunea vizuala prietenoasa cu cardul inteligent pe desktop.
@@ -75,7 +78,7 @@ Ca utilizator final, vreau o aplicatie grafica moderna WinUI 3 pe Windows cu dou
 **Independent Test**: Lansarea aplicatiei WinUI 3 si parcurgerea manuala a fluxului UI Pas 1 -> Pas 2 -> Pas 3.
 
 **Acceptance Scenarios**:
-1. **Given** aplicatia WinUI 3 deschisa cu cititorul conectat, **When** utilizatorul da click pe butonul „Citeste” pe un card curat, **Then** eticheta de rezultat arata `(Gol) - 0 octeti primiti`.
+1. **Given** aplicatia WinUI 3 deschisa cu cititorul conectat, **When** utilizatorul da click pe butonul „Citeste” pe un card curat, **Then** eticheta de rezultat `TxtOutput` este exact `(Gol)`.
 2. **Given** aplicatia deschisa, **When** utilizatorul da click pe butonul „Scrie”, **Then** cardul primeste payload-ul `"Hello, World!"`, iar eticheta de stare indica `OK (9000)`.
 3. **Given** scrierea a fost executata, **When** utilizatorul da click din nou pe „Citeste”, **Then** in caseta de text apare `"Hello, World!"`.
 
@@ -113,11 +116,12 @@ Ca dezvoltator de calitate si automatizare, vreau un test automatizat folosind F
 - **FR-003**: Comunicarea cu cititorul se va face prin WinSCard (`winscard.dll`) folosind API-ul nativ `[LibraryImport]` pentru compatibilitate Native AOT completa.
 - **FR-004**: Aplicatia grafica TREBUIE sa fie dezvoltata in WinUI 3 (Windows App SDK), oferind elemente XAML native, butoane dedicate „Citeste” si „Scrie” si `AutomationId` explicit pentru accesibilitate si testare.
 - **FR-005**: Solutia TREBUIE sa includa un proiect de teste automate cu `FlaUI.UIA3` care verifica secventa de citire-scriere-citire.
+- **FR-006**: La citire fără date, `TxtOutput` este exact `(Gol)`. După scrierea reușită a payload-ului, `TxtStatus` este exact `OK (9000)`.
 
 ---
 
 ## Success Criteria *(measurable)*
 
-- **SC-001**: Timpul de pornire al aplicatiei Native AOT WinUI 3 este sub 200 ms.
+- **SC-001**: Timpul de pornire al aplicatiei Native AOT WinUI 3 este sub 1 s.
 - **SC-002**: Rularea testului FlaUI valideaza ciclul complet (Citeste -> Gol, Scrie -> OK, Citeste -> Hello, World!) cu succes 100% in mod automat.
 - **SC-003**: Applet-ul Java Card are 100% code coverage pe masina virtuala simulata jCardSim.

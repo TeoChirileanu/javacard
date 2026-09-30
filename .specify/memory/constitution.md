@@ -1,15 +1,13 @@
 <!--
 Sync Impact Report:
-- Version change: initial template -> v1.0.0
+- Version change: v1.0.0 -> v1.0.1
 - Ratification Date: 2026-09-28
-- Principles Defined:
-  - I. Real Hardware & PC/SC First
-  - II. Zero-Allocation & Strict Memory Safety (NON-NEGOTIABLE)
-  - III. Standards-Compliant Protocol Engineering
-  - IV. Hardware Guardrails & Factory Asset Protection
-  - V. Secure PINpad & Hardware Credential Isolation
-- Added Sections: Security & Hardware Constraints, Development & Quality Gates, Governance
-- Removed Sections: Template placeholders
+- Last Amended: 2026-09-30
+- Bump rationale: PATCH. Principle V is clarified, not removed. PIN isolation still binds whenever a feature collects a PIN.
+- Principles Modified:
+  - V. Secure PINpad & Hardware Credential Isolation (scope clarified)
+- Added Sections: None
+- Removed Sections: None
 - Deferred Items: None
 -->
 
@@ -40,9 +38,10 @@ The target NXP P71 card hosts factory-installed modules and specific cryptograph
 - Life-cycle transitions (e.g. `CARD_LOCKED`, `TERMINATED`) MUST be protected against accidental execution.
 
 ### V. Secure PINpad & Hardware Credential Isolation
-The project leverages the Identiv SPR332 Class 2 PINpad reader to maintain maximum credential isolation:
-- PIN entry MUST prioritize on-reader verification via PC/SC Part 10 (`FEATURE_VERIFY_PIN_DIRECT`, IOCTL `0x00313538`), ensuring PIN keystrokes travel directly to the card chip without traversing host PC memory.
-- User feedback MUST respect the acoustic buzzer signaling semantics, recognizing that the reader has no LCD display (`wLcdLayout = 0`) and relies on audible cues for keystrokes, session start, and completion.
+The Identiv SPR332 Class 2 PINpad keeps cardholder secrets off the host. This principle binds only a feature that collects a PIN or another cardholder secret. A feature that stores no secret, including feature 001 (Smart Card Hello World), MUST NOT add a PIN prompt in order to satisfy this principle.
+When a feature collects a PIN:
+- PIN entry MUST use on-reader verification via PC/SC Part 10 (`FEATURE_VERIFY_PIN_DIRECT`, IOCTL `0x00313538`), so PIN keystrokes travel to the card without traversing host PC memory.
+- User feedback MUST respect the acoustic buzzer signaling semantics. The reader has no LCD (`wLcdLayout = 0`) and relies on audible cues for keystrokes, session start, and completion.
 
 ## Security & Hardware Constraints
 
@@ -76,4 +75,4 @@ The project leverages the Identiv SPR332 Class 2 PINpad reader to maintain maxim
   - **MINOR (1.x.0)**: Addition of new cryptographic algorithms, platform profiles, or new reader features.
   - **PATCH (1.0.x)**: Clarifications, documentation corrections, or minor adjustments.
 
-**Version**: 1.0.0 | **Ratified**: 2026-09-28 | **Last Amended**: 2026-09-28
+**Version**: 1.0.1 | **Ratified**: 2026-09-28 | **Last Amended**: 2026-09-30
